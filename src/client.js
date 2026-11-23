@@ -1,10 +1,11 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-subagent-antigravity',
+  id: '@xgone/dsh-subagent-antigravity',
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const NAMESPACE = 'dsh-subagent-antigravity-ui'
-    const PACKAGE = 'dsh-subagent-antigravity'
+    const NAMESPACE = '@xgone/dsh-subagent-antigravity-ui'
+    const PACKAGE = '@xgone/dsh-subagent-antigravity'
+    const LEGACY_PACKAGE = 'dsh-subagent-antigravity'
     const ROW_ID = 'subagent-antigravity'
 
     const dictionaries = {
@@ -258,19 +259,21 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         for (const [language, dictionary] of Object.entries(dictionaries)) {
           ctx.effect(() => ctx.locale.register(NAMESPACE, language, dictionary),
-            `dsh-subagent-antigravity.locale.${language}`)
+            `@xgone/dsh-subagent-antigravity.locale.${language}`)
         }
-        ctx.effect(() => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
-          name: 'plugins.row.config',
-          key: `${PACKAGE}#${ROW_ID}`,
-          locale: NAMESPACE,
-        }, AutoDelegateConfig)), 'dsh-subagent-antigravity.auto-delegate-ui')
+        for (const packageName of [PACKAGE, LEGACY_PACKAGE]) {
+          ctx.effect(() => ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+            name: 'plugins.row.config',
+            key: `${packageName}#${ROW_ID}`,
+            locale: NAMESPACE,
+          }, AutoDelegateConfig)), `@xgone/dsh-subagent-antigravity.config-ui:${packageName}`)
+        }
         ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',
-          id: 'dsh-subagent-antigravity-status',
+          id: 'xgone-antigravity-status',
           order: 15,
           locale: NAMESPACE,
-        }, AntigravityStatusAction)), 'dsh-subagent-antigravity.header-status-ui')
+        }, AntigravityStatusAction)), '@xgone/dsh-subagent-antigravity.header-status-ui')
       },
     }
   },

@@ -28,7 +28,13 @@ agy --version
 agy
 ```
 
-**3. 把本 bundle 加到某个 DSH Profile：**
+**3. 把 npm 包加到某个 DSH Profile：**
+
+```bash
+dsh plugin --profile <你的 Profile> add @xgone/dsh-subagent-antigravity
+```
+
+也可以从本地源码检出安装：
 
 ```bash
 git clone https://github.com/xgone/dsh-subagent-antigravity.git
@@ -48,7 +54,7 @@ dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 
 ```yaml
 - id: subagent-antigravity
-  name: 'dsh-subagent-antigravity'
+  name: '@xgone/dsh-subagent-antigravity'
   config:
     command: /path/to/agy        # 仅当 agy 不在 PATH 上时需要
     model: gemini-4-neon-high    # 可选，见下文

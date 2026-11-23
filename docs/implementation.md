@@ -4,7 +4,7 @@ This page is for maintainers. User-facing setup, configuration and troubleshooti
 
 ## What it plugs into
 
-`dsh-subagent-antigravity` is a plain-JS Profile bundle (no build step), adapted from DSH's built-in Codex subagent provider (`packages/subagent/subagent-codex`). It uses the same seams:
+`@xgone/dsh-subagent-antigravity` is a plain-JS Profile bundle (no build step), adapted from DSH's built-in Codex subagent provider (`packages/subagent/subagent-codex`). It uses the same seams:
 
 - `ctx.subagents` — named provider registry; registers `antigravity`;
 - `ctx.subprocess` — managed process range for the `agy` child;

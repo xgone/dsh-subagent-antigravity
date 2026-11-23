@@ -28,7 +28,13 @@ agy --version
 agy
 ```
 
-**3. Add this bundle to a DSH Profile:**
+**3. Add the npm package to a DSH Profile:**
+
+```bash
+dsh plugin --profile <your-profile> add @xgone/dsh-subagent-antigravity
+```
+
+To install from a local checkout instead:
 
 ```bash
 git clone https://github.com/xgone/dsh-subagent-antigravity.git
@@ -48,7 +54,7 @@ Everything else is set per Profile in `cordis.patch.yml`:
 
 ```yaml
 - id: subagent-antigravity
-  name: 'dsh-subagent-antigravity'
+  name: '@xgone/dsh-subagent-antigravity'
   config:
     command: /path/to/agy        # only needed if agy is not on PATH
     model: gemini-4-neon-high    # optional, see below

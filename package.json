@@ -1,9 +1,8 @@
 {
-  "name": "dsh-subagent-antigravity",
-  "version": "0.1.1",
+  "name": "@xgone/dsh-subagent-antigravity",
+  "version": "0.1.0",
   "description": "One-shot Antigravity CLI (agy) subagent provider over the headless stream-json protocol",
   "type": "module",
-  "private": true,
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -19,6 +18,8 @@
     "icon.svg",
     "cordis.patch.yml",
     "docs",
+    "scripts",
+    "test",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -49,8 +50,6 @@
     "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-session-projection": "^0.2.2-rc.1",
-    "@deepseek-ai/dsh-agent": "^0.2.2-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.19.0",
     "zod": "^4.4.3"
   },
@@ -65,6 +64,9 @@
   ],
   "license": "MIT",
   "author": "xgone",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xgone/dsh-subagent-antigravity.git"

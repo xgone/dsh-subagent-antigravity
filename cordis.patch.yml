@@ -12,7 +12,7 @@
 # or in-session via plugin_manager's install_bundle with that absolute directory.
 - insert:
     - id: subagent-antigravity
-      name: 'dsh-subagent-antigravity'
+      name: '@xgone/dsh-subagent-antigravity'
     - id: tool-subagent-antigravity
       name: '@deepseek-ai/dsh-tool-subagent'
       config:

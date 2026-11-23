@@ -5,7 +5,7 @@
  * an established session. Native Antigravity authentication and settings stay
  * authoritative; this provider adds delegation, result mapping and teardown.
  *
- * @module dsh-subagent-antigravity
+ * @module @xgone/dsh-subagent-antigravity
  */
 
 import z from '@deepseek-ai/schemastery'

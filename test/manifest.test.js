@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const bundlePatch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+const clientSource = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 
 test('manifest declares runtime peers used by the provider and patch', () => {
   const peers = packageJson.peerDependencies
@@ -23,4 +25,14 @@ test('manifest declares runtime peers used by the provider and patch', () => {
   assert.ok(packageJson.files.includes('src'))
   assert.ok(packageJson.files.includes('locale/*.json'))
   assert.ok(packageJson.files.includes('icon.svg'))
+})
+
+test('bundle and client package identities match the public npm scope', () => {
+  assert.equal(packageJson.name, '@xgone/dsh-subagent-antigravity')
+  assert.equal(packageJson.publishConfig?.access, 'public')
+  assert.equal(packageJson.private, undefined)
+  assert.ok(bundlePatch.includes(`name: '${packageJson.name}'`))
+  assert.ok(clientSource.includes(`id: '${packageJson.name}'`))
+  assert.ok(clientSource.includes(`const PACKAGE = '${packageJson.name}'`))
+  assert.ok(clientSource.includes("const LEGACY_PACKAGE = 'dsh-subagent-antigravity'"))
 })

@@ -1,6 +1,6 @@
 # Antigravity CLI facts this provider is pinned to
 
-This file records the exact published CLI contract `dsh-subagent-antigravity`
+This file records the exact published CLI contract `@xgone/dsh-subagent-antigravity`
 is written against, so a future CLI change can be diffed deliberately. Sources
 are the official Google Antigravity documentation.
 

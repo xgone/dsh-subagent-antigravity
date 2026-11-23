@@ -13,7 +13,7 @@
  *   - the terminal `result` event is the single authoritative outcome;
  *   - the `init` event proves the CLI accepted the session before we publish.
  *
- * @module dsh-subagent-antigravity/antigravity
+ * @module @xgone/dsh-subagent-antigravity/antigravity
  */
 
 import { StringDecoder } from 'node:string_decoder'

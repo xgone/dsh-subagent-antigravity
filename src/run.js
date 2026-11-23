@@ -11,7 +11,7 @@
  *     `settleRunResult`;
  *   - teardown closes stdin, terminates the managed range and waits for exit.
  *
- * @module dsh-subagent-antigravity/run
+ * @module @xgone/dsh-subagent-antigravity/run
  */
 
 import { randomUUID } from 'node:crypto'

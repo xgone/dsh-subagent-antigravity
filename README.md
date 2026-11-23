@@ -1,8 +1,3 @@
----
-description: "Let your DSH agent hand a single task to the Google Antigravity CLI (agy) and get the result back."
-kind: "package-bundle"
----
-
 # Antigravity Subagent for DeepSeek Harness
 
 <p align="center">

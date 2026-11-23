@@ -1,8 +1,3 @@
----
-description: "让你的 DSH 智能体把单个任务交给 Google Antigravity CLI（agy）执行，并把结果取回来。"
-kind: "package-bundle"
----
-
 # Antigravity 子智能体（DeepSeek Harness）
 
 <p align="center">

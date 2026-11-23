@@ -5,7 +5,20 @@ kind: "package-bundle"
 
 # Antigravity Subagent for DeepSeek Harness
 
-English | [中文](README.zh.md)
+<p align="center">
+  <a href="https://www.npmjs.com/package/@xgone/dsh-subagent-antigravity"><img src="https://img.shields.io/npm/v/%40xgone%2Fdsh-subagent-antigravity?logo=npm&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@xgone/dsh-subagent-antigravity"><img src="https://img.shields.io/npm/dm/%40xgone%2Fdsh-subagent-antigravity?logo=npm&label=downloads" alt="npm monthly downloads" /></a>
+  <a href="https://github.com/xgone/dsh-subagent-antigravity/actions/workflows/ci.yml"><img src="https://github.com/xgone/dsh-subagent-antigravity/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/xgone/dsh-subagent-antigravity?label=license" alt="MIT license" /></a>
+</p>
+
+<p align="center"><strong>English</strong> · <a href="README.zh.md">中文</a></p>
+
+<p align="center">
+  <img src="assets/banner.svg" alt="Abstract Antigravity delegation banner" width="100%" />
+</p>
+
+<p align="center"><strong>Delegate a task. Keep your main DSH conversation clean.</strong></p>
 
 Give your DSH agent a second pair of hands: it can hand one self-contained task to the **Google Antigravity CLI** (`agy`), which runs it in its own fresh session inside your workspace and reports the final answer back. You keep talking to DSH; Antigravity does the work.
 

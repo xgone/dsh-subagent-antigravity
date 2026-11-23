@@ -5,7 +5,20 @@ kind: "package-bundle"
 
 # Antigravity 子智能体（DeepSeek Harness）
 
-[English](README.md) | 中文
+<p align="center">
+  <a href="https://www.npmjs.com/package/@xgone/dsh-subagent-antigravity"><img src="https://img.shields.io/npm/v/%40xgone%2Fdsh-subagent-antigravity?logo=npm&label=npm" alt="npm 版本" /></a>
+  <a href="https://www.npmjs.com/package/@xgone/dsh-subagent-antigravity"><img src="https://img.shields.io/npm/dm/%40xgone%2Fdsh-subagent-antigravity?logo=npm&label=下载量" alt="npm 月下载量" /></a>
+  <a href="https://github.com/xgone/dsh-subagent-antigravity/actions/workflows/ci.yml"><img src="https://github.com/xgone/dsh-subagent-antigravity/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI 状态" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/xgone/dsh-subagent-antigravity?label=license" alt="MIT 许可" /></a>
+</p>
+
+<p align="center"><a href="README.md">English</a> · <strong>中文</strong></p>
+
+<p align="center">
+  <img src="assets/banner.svg" alt="Antigravity 子任务委派主题横幅" width="100%" />
+</p>
+
+<p align="center"><strong>把任务交给 Antigravity，让主 DSH 对话保持清爽。</strong></p>
 
 给你的 DSH 智能体多一双手：它可以把一个自包含的任务交给 **Google Antigravity CLI**（`agy`），由后者在工作区里用一个全新的独立会话执行，并把最终答案回报给父会话。你始终和 DSH 对话，具体干活的是 Antigravity。
 

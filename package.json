@@ -16,6 +16,7 @@
     "src",
     "locale/*.json",
     "icon.svg",
+    "assets",
     "cordis.patch.yml",
     "docs",
     "scripts",

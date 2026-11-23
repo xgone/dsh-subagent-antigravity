@@ -1,0 +1,81 @@
+{
+  "name": "dsh-subagent-antigravity",
+  "version": "0.1.0",
+  "description": "One-shot Antigravity CLI (agy) subagent provider over the headless stream-json protocol",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon.svg": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "src",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "docs",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-subagent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-subprocess": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-subagent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-session-projection": "^0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "zod": "^4.4.3"
+  },
+  "icon": "./icon.svg",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "bundle",
+    "subagent",
+    "antigravity",
+    "agy"
+  ],
+  "license": "MIT",
+  "author": "xgone",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xgone/dsh-subagent-antigravity.git"
+  },
+  "homepage": "https://github.com/xgone/dsh-subagent-antigravity#readme",
+  "bugs": {
+    "url": "https://github.com/xgone/dsh-subagent-antigravity/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --check src/index.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/client.js && node --check scripts/verify-release.mjs",
+    "test": "node --test test/*.test.js",
+    "verify:release": "node scripts/verify-release.mjs",
+    "link-dev-deps": "node scripts/link-dev-deps.mjs"
+  }
+}

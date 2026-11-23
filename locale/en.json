@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Antigravity subagent",
+    "description": "Delegate one task to the Google Antigravity CLI (agy) using its native authentication and settings."
+  }
+}

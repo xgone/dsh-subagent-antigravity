@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Runtime peers resolve from the host DSH installation, not npm, so CI
+      # checks the publishable surface without installing anything.
+      - run: npm run check
+      - run: node --test test/manifest.test.js
+      - run: npm run verify:release

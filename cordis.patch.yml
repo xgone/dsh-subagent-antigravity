@@ -1,0 +1,21 @@
+# Antigravity subagent bundle patch.
+#
+# Inserts one provider row and one model-facing tool row. The tool row reuses the
+# shipped `@deepseek-ai/dsh-tool-subagent` package (resolved from the running DSH
+# installation) and only binds it to this provider.
+#
+#   subagent-antigravity : registers provider name `antigravity` on ctx.subagents
+#   tool-subagent-antigravity : exposes `subagent_antigravity` as a global tool
+#
+# Install with:
+#   dsh plugin --profile <name> add /path/to/antigravity-subagent
+# or in-session via plugin_manager's install_bundle with that absolute directory.
+- insert:
+    - id: subagent-antigravity
+      name: 'dsh-subagent-antigravity'
+    - id: tool-subagent-antigravity
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: antigravity
+        toolName: subagent_antigravity
+        maxDepth: provider-managed

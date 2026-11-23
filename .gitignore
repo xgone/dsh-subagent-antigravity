@@ -1,0 +1,18 @@
+# Dependencies (linked locally for tests, never shipped)
+node_modules/
+
+# Local-only Profile overlays and machine-specific configuration
+*-overlay.yml
+*.local.yml
+.env
+.env.*
+
+# Local test artifacts
+profiles/
+results/
+coverage/
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db

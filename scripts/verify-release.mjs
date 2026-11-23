@@ -13,7 +13,8 @@ import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const SKIP = new Set(['node_modules', '.git'])
+const SKIP = new Set(['node_modules', '.git', 'profiles', 'results', 'coverage'])
+const SKIP_FILE = /(?:^\.env(?:\..*)?$|\.local\.yml$|-overlay\.yml$)/u
 const RULES = [
   { name: 'private key block', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { name: 'GitHub token', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/ },
@@ -30,7 +31,7 @@ function* walk(directory) {
     if (SKIP.has(entry.name)) continue
     const path = join(directory, entry.name)
     if (entry.isDirectory()) yield* walk(path)
-    else if (statSync(path).isFile()) yield path
+    else if (statSync(path).isFile() && !SKIP_FILE.test(entry.name)) yield path
   }
 }
 

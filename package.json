@@ -1,6 +1,6 @@
 {
   "name": "dsh-subagent-antigravity",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One-shot Antigravity CLI (agy) subagent provider over the headless stream-json protocol",
   "type": "module",
   "private": true,
@@ -38,6 +38,8 @@
     }
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-subagent": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-subprocess": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-timeout": "^0.2.2-rc.1",
@@ -47,6 +49,8 @@
     "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-session-projection": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.19.0",
     "zod": "^4.4.3"
   },
@@ -73,7 +77,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/client.js && node --check scripts/verify-release.mjs",
+    "check": "node --check src/index.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
     "test": "node --test test/*.test.js",
     "verify:release": "node scripts/verify-release.mjs",
     "link-dev-deps": "node scripts/link-dev-deps.mjs"

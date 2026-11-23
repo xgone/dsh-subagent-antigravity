@@ -21,10 +21,11 @@ import {
   DEFAULT_DISPOSE_GRACE_MS,
 } from './antigravity.js'
 import { antigravityStatusProjection } from './status-projection.js'
+import { installAutoDelegateRouting } from './enforcement.js'
 import { antigravityStartupFailure, startAntigravityRun } from './run.js'
 
 export const name = 'subagent-antigravity'
-export const inject = ['subagents', 'subprocess', 'systemPrompt', 'sessionProjections']
+export const inject = ['subagents', 'subprocess', 'systemPrompt', 'sessionProjections', 'agents', 'tools']
 
 const DEFAULT_PROVIDER_NAME = 'antigravity'
 const DEFAULT_COMMAND = 'agy'
@@ -54,7 +55,7 @@ export const AUTO_DELEGATE_INSTRUCTIONS = [
  * @property {import('@deepseek-ai/cordis').Volatile<'default'|'accept-edits'|'auto'|'dangerously-skip-permissions'>} permissionMode - volatile permission posture exposed in the Plugins form.
  * @property {Record<string, string>} [env] - explicit child environment layered over the scrubbed parent environment.
  * @property {number} [disposeGraceMs] - grace between managed-range termination tiers.
- * @property {import('@deepseek-ai/cordis').Volatile<boolean>} autoDelegate - add a system-prompt policy that asks the parent DSH Agent to delegate every new user task to `subagent_antigravity` and relay its result.
+ * @property {import('@deepseek-ai/cordis').Volatile<boolean>} autoDelegate - hide built-in DSH subagent tools for each live Agent and ask it to use `subagent_antigravity` for new user tasks.
  */
 
 export const Config = z.object({
@@ -143,9 +144,12 @@ export async function apply(ctx, config) {
   const statusProjection = await ctx.sessionProjections.register(antigravityStatusProjection)
   ctx.effect(() => () => statusProjection.dispose(), 'subagent-antigravity.status-projection')
   ctx.subagents.registerProvider(new AntigravityProvider(resolved.providerName, ctx, resolved))
+  const routing = installAutoDelegateRouting(ctx)
   let disposeAutoDelegateSection
   const syncAutoDelegateSection = () => {
-    if (resolved.autoDelegate.get()) {
+    const enabled = resolved.autoDelegate.get()
+    routing.setEnabled(enabled)
+    if (enabled) {
       if (disposeAutoDelegateSection === undefined) {
         disposeAutoDelegateSection = ctx.systemPrompt.section({
           name: AUTO_DELEGATE_SECTION_NAME,
@@ -164,6 +168,7 @@ export async function apply(ctx, config) {
     syncAutoDelegateSection()
     return () => {
       offSettings()
+      routing.dispose()
       disposeAutoDelegateSection?.()
       disposeAutoDelegateSection = undefined
     }

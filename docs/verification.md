@@ -10,8 +10,8 @@ because the published record is engineering evidence, not a session transcript.
 - `npm test` covers the pure protocol helpers (argv construction, stdin event
   encoding, NDJSON framing including split UTF-8 and chunk boundaries, status
   classification, safe diagnostics), the provider lifecycle against a fake
-  managed-process handle, the manifest peer set, and the Session status
-  projection.
+  managed-process handle, Agent-scoped subagent-tool restrictions and their
+  dispatch guard, the manifest peer set, and the Session status projection.
 - `npm run verify:release` refuses machine-local paths and credential-shaped
   strings in every publishable file.
 
@@ -30,7 +30,24 @@ because the published record is engineering evidence, not a session transcript.
 - The unattended permission posture used by that deployment could not answer
   approval prompts. `permissionMode` now exposes the posture in the Plugins
   form so an operator can choose a sandbox-safe or fully permissive mode
-  deliberately; the default remains `accept-edits`.
+  deliberately; the default is now `default`.
+
+## Regression: automatic delegation was only advisory
+
+- Reported symptom: with automatic delegation on, the parent model still chose
+  DSH's built-in `subagent` tool, so work went to a local child instead of Agy.
+- Cause: the switch only added a system-prompt section. Tool declarations are
+  provider-owned, so prompt guidance could not remove the built-in tools.
+- Fix: while the switch is on, the plugin applies an Agent-scoped
+  `tools.restrict({ deny })` for `subagent` and `subagent_fork`, re-applies it
+  to Agents created later and to tools registered later, and disposes every
+  restriction when the switch turns off or the plugin unloads. A `tools.guard`
+  backstop blocks an in-flight call, or a same-named scope-local shadow that the
+  inherited-tool mask cannot hide.
+- Live check: with the switch on, the parent request's tool list contained
+  `subagent_antigravity` and no `subagent`/`subagent_fork`; the Agy child ran,
+  the header indicator appeared, and the completion notice relayed the result.
+  With the switch off, `npm test` asserts both built-in names are visible again.
 
 ## End-to-end round trip
 

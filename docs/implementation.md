@@ -33,7 +33,7 @@ The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-su
 - **Native configuration is authoritative** — authentication, `settings.json`, model catalog and workspace trust stay native. Only `--model`/`--effort`/`--agent` and the `permissionMode` flags are overridden.
 - **The terminal `result` is the only authority** — a run completes only when `status === "SUCCESS"` and `response` is non-blank. Other statuses map to `aborted` or `error`. When the terminal response is blank but assistant text streamed earlier, that text is forwarded as partial error output; the run is still reported as `invalid-result` rather than promoted to success.
 - **The header indicator is derived state** — a plugin-owned Session projection tracks `subagent_antigravity` start receipts until the durable `subagent-settled` notice, and a header action renders the count. It is not a progress stream.
-- **Settings that must change without a reload are volatile** — `permissionMode` and `autoDelegate` are editable in the Plugins form; the provider reads them per run and re-syncs the prompt section when the switch changes.
+- **Settings that must change without a reload are volatile** — `permissionMode` and `autoDelegate` are editable in the Plugins form. A switch change updates both the prompt section and the live tool policy.
 
 ## Model Experience
 
@@ -51,6 +51,7 @@ The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-su
 | `src/run.js` | Run lifecycle: resolve executable, spawn, startup gate, result mapping, dispose. |
 | `src/antigravity.js` | Pure protocol: argv, user-event encoding, NDJSON feed, status classification, diagnostics. |
 | `src/status-projection.js` | Parent Session projection that drives the header running indicator. |
+| `src/enforcement.js` | Agent-scoped restrictions and dispatch guard for built-in subagent tools while auto-delegate is on. |
 | `src/client.js` | Browser half: Plugins configuration form and Session-header status action. |
 | `cordis.patch.yml` | Bundle layer: provider row and tool row. |
 | `docs/antigravity-cli-facts.md` | The pinned CLI contract, with sources. |
@@ -62,7 +63,7 @@ The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-su
 - **Native auth and account state remain native** — the bundle supplies nothing for login; configuration and authentication failures surface as a safe `unknown`/`product-error` diagnostic plus Host stderr.
 - **Requires `agy` on the host** — no vendored CLI and no `PATH` fallback beyond `command`; a missing executable fails the first delegation.
 - **No human approval path** — `permissionMode` chooses an unattended posture; nothing creates a DSH interaction channel.
-- **Automatic delegation is prompt guidance** — `autoDelegate` asks the parent model to route new tasks to Antigravity, but does not hard-intercept the DSH model loop; a preset with a complete custom system prompt may replace global sections.
+- **Automatic delegation has a bounded hard policy** — while `autoDelegate` is on, Agent-scoped `tools.restrict()` hides the inherited `subagent` and `subagent_fork` tools, and a dispatch guard blocks an in-flight call or same-named scoped shadow. The prompt asks the model to call `subagent_antigravity`. The model can still answer directly or use unrelated tools; the plugin does not rewrite the Agent loop.
 - **Assistant payload is the final `response` only** — reasoning, tool output, usage, stderr and diffs stay outside the parent Session.
 - **No optional shared capabilities** — `agentPreset`, `agentOptions`, `outputSchema` and harness depth enforcement are rejected by the shared service for this provider.
 - **No wall-clock timeout or side-effect rollback** — the caller cancels long work; files changed before cancellation are not restored.

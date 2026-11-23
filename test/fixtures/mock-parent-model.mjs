@@ -91,7 +91,9 @@ const server = createServer(async (request, response) => {
   const messages = Array.isArray(body.messages) ? body.messages : []
   const allText = messages.map(message => blockText(message.content)).join('\n')
   const tools = Array.isArray(body.tools) ? body.tools : []
-  const hasAgyTool = tools.some(tool => tool?.name === 'subagent_antigravity')
+  const toolNames = tools.map(tool => tool?.name).filter(Boolean)
+  const hasAgyTool = toolNames.includes('subagent_antigravity')
+  const leakedBuiltIns = toolNames.filter(name => name === 'subagent' || name === 'subagent_fork')
   const hasCompletion = allText.includes('AGY_CHILD_COMPLETE_OK')
   const hasStartReceipt = messages.some(message => Array.isArray(message.content)
     && message.content.some(block => block?.type === 'tool_result' && blockText(block.content).includes('started subagent')))
@@ -104,8 +106,13 @@ const server = createServer(async (request, response) => {
     stage = 'waiting'
     events = textReply('Agy child started; I will wait for its completion notice.')
   } else if (!toolIssued && hasAgyTool && allText.includes('AGY_STATUS_E2E_TRIGGER')) {
-    stage = 'start-tool'
-    events = toolReply()
+    if (leakedBuiltIns.length > 0) {
+      stage = 'built-in-tools-leaked'
+      events = textReply(`ROUTING_FAILURE: built-in tools still visible: ${leakedBuiltIns.join(', ')}`)
+    } else {
+      stage = 'start-tool'
+      events = toolReply()
+    }
   } else if (!hasAgyTool) {
     stage = 'title-or-no-tools'
     events = textReply('Agy status smoke test')
@@ -113,7 +120,7 @@ const server = createServer(async (request, response) => {
     stage = 'wait-for-completion'
     events = textReply('Agy child is still running; I will wait for its completion notice.')
   }
-  console.log(`AGY_MOCK request=${requestCount} stage=${stage} tools=${tools.map(tool => tool?.name).filter(Boolean).join(',')}`)
+  console.log(`AGY_MOCK request=${requestCount} stage=${stage} tools=${toolNames.join(',')}`)
   sendSse(response, events)
 })
 

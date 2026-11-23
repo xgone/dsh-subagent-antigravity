@@ -18,7 +18,7 @@ test('permission mode flags match the documented agy contract', () => {
   assert.deepEqual(permissionModeArgs('auto'), ['--mode=auto', '--sandbox'])
   assert.deepEqual(permissionModeArgs('dangerously-skip-permissions'), ['--dangerously-skip-permissions'])
   assert.throws(() => permissionModeArgs('nope'), /unknown permissionMode/)
-  assert.equal(DEFAULT_ANTIGRAVITY_PERMISSION_MODE, 'accept-edits')
+  assert.equal(DEFAULT_ANTIGRAVITY_PERMISSION_MODE, 'default')
   assert.deepEqual([...ANTIGRAVITY_PERMISSION_MODES], ['default', 'accept-edits', 'auto', 'dangerously-skip-permissions'])
 })
 

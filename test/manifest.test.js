@@ -7,6 +7,8 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 test('manifest declares runtime peers used by the provider and patch', () => {
   const peers = packageJson.peerDependencies
   for (const name of [
+    '@deepseek-ai/dsh-agent',
+    '@deepseek-ai/dsh-tools',
     '@deepseek-ai/dsh-subagent',
     '@deepseek-ai/dsh-subprocess',
     '@deepseek-ai/dsh-timeout',

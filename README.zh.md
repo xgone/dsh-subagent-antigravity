@@ -41,8 +41,8 @@ dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 
 打开 **Plugins → Installed plugins → Antigravity 子智能体**，点击**配置**，这里可以直接改两项：
 
-- **自动将新任务交给 Antigravity** —— 开启后，DSH 会提示模型把每条新任务交给 Antigravity，并转交结果。
-- **Antigravity 权限模式** —— 无人值守会话在不询问你的情况下能做多少事。推荐默认 `accept-edits`；`dangerously-skip-permissions` 会跳过全部审批与沙箱，只在完全信任的任务和目录里使用。
+- **自动将新任务交给 Antigravity** —— 开启后，DSH 会隐藏内置本地子智能体工具，并提示模型把每条新任务交给 Antigravity，再转交结果。主模型仍可直接回答或使用其他工具。
+- **Antigravity 权限模式** —— 无人值守会话在不询问你的情况下能做多少事。默认 `default` 使用沙箱且不会自动批准；需要自动允许工作区文件编辑时可选 `accept-edits`。`dangerously-skip-permissions` 会跳过全部审批与沙箱，只在完全信任的任务和目录里使用。
 
 其余配置写在 Profile 的 `cordis.patch.yml` 里：
 
@@ -60,7 +60,7 @@ dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 | `command` | `agy` 可执行文件位置 | 从 `PATH` 找 `agy` |
 | `model` | 该 Profile 所有任务使用的 Antigravity 模型 | 沿用 Antigravity 自身设置 |
 | `effort` | 推理强度（模型支持等级时） | 沿用 Antigravity 自身设置 |
-| `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `accept-edits` |
+| `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | 自动把每条新任务交给 Antigravity | `false` |
 | `env` | 给子进程的额外环境变量 | `{}` |
 
@@ -80,7 +80,7 @@ model: claude-sonnet-5-5-high
 
 ## 使用
 
-- **自动模式**：开启自动委派后，正常发消息即可，DSH 会交给 Antigravity 并转交结果。
+- **自动模式**：开启后发普通消息即可；当前 Agent 看不到 DSH 内置的 `subagent` / `subagent_fork` 工具，主模型会被提示调用 `subagent_antigravity` 并转交结果。主模型仍可直接回答或使用其他工具。
 - **手动模式**：要求智能体对某个任务使用 `subagent_antigravity`。
 - **运行期间**：会话顶部会显示运行指示和任务数量；任务结束后指示消失，结果以普通回复出现在对话里。
 

@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const dictionaries = {
       en: {
         toggle: 'Automatically delegate new tasks to Antigravity',
-        help: 'When enabled, DSH asks Antigravity to handle each new task and relays its final answer. DSH still schedules the child; this setting guides the model rather than hard-routing the request.',
+        help: 'When enabled, DSH hides its built-in subagent tools and asks the model to delegate each new task to Antigravity. DSH still schedules the child and relays its final result; the model may still answer directly or use other tools.',
         summaryOn: 'Automatic Antigravity delegation is on.',
         summaryOff: 'Automatic Antigravity delegation is off.',
         loading: 'Loading configuration…',
@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
       },
       zh: {
         toggle: '自动将新任务交给 Antigravity',
-        help: '开启后，DSH 会提示主模型把每条新任务交给 Antigravity，并转交最终结果。DSH 仍负责调度子智能体；此开关通过提示引导模型，不会硬性拦截模型请求。',
+        help: '开启后，DSH 会提示主模型把每条新任务交给 Antigravity，并转交最终结果。DSH 仍负责调度子智能体；同时会隐藏内置的本地子智能体工具，避免任务被转给本地子智能体。主模型仍可直接回答或使用其他工具。',
         summaryOn: '自动委派已开启。',
         summaryOff: '自动委派已关闭。',
         loading: '正在加载配置…',
@@ -65,7 +65,7 @@ window.__ModuleLoader__.load({
       }, [state?.revision, state?.value?.autoDelegate, state?.value?.permissionMode])
 
       const enabled = draft.autoDelegate ?? (state?.value?.autoDelegate === true)
-      const permissionMode = draft.permissionMode ?? state?.value?.permissionMode ?? 'accept-edits'
+      const permissionMode = draft.permissionMode ?? state?.value?.permissionMode ?? 'default'
       if (view === 'summary') {
         return h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } },
           t(enabled ? 'summaryOn' : 'summaryOff'))
@@ -142,6 +142,14 @@ window.__ModuleLoader__.load({
         },
       }),
       h('span', null, t('toggle'))),
+      h('p', {
+        style: {
+          margin: 0,
+          color: 'var(--dsw-alias-label-secondary)',
+          fontSize: '13px',
+          lineHeight: 1.45,
+        },
+      }, t('help')),
       h('label', {
         style: {
           display: 'grid',
@@ -170,14 +178,6 @@ window.__ModuleLoader__.load({
       h('option', { value: 'accept-edits' }, t('permissionAcceptEdits')),
       h('option', { value: 'auto' }, t('permissionAuto')),
       h('option', { value: 'dangerously-skip-permissions' }, t('permissionDangerous')))),
-      h('p', {
-        style: {
-          margin: 0,
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '13px',
-          lineHeight: 1.45,
-        },
-      }, t('help')),
       h('p', {
         style: {
           margin: 0,

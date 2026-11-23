@@ -41,8 +41,8 @@ Restart DSH if the installer asks you to. No `agy` process starts until you actu
 
 Open **Plugins → Installed plugins → Antigravity 子智能体** and click **Configure**. Two things are editable there:
 
-- **Automatically delegate new tasks to Antigravity** — when on, DSH asks the model to send each new task to Antigravity and relay the answer back.
-- **Antigravity permission mode** — how much the unattended session may do without asking you. `accept-edits` is the recommended default; `dangerously-skip-permissions` runs everything without approvals and sandboxing, so use it only for tasks and folders you fully trust.
+- **Automatically delegate new tasks to Antigravity** — when on, DSH hides its built-in subagent tools and asks the model to send each new task to Antigravity, then relays the answer. The model may still answer directly or use other tools.
+- **Antigravity permission mode** — how much the unattended session may do without asking you. The default `default` mode keeps command execution sandboxed and does not auto-approve actions. Choose `accept-edits` when workspace edits should be automatic; `dangerously-skip-permissions` runs everything without approvals or sandboxing and should only be used for workspaces you fully trust.
 
 Everything else is set per Profile in `cordis.patch.yml`:
 
@@ -60,7 +60,7 @@ Everything else is set per Profile in `cordis.patch.yml`:
 | `command` | Where the `agy` executable lives | `agy` from `PATH` |
 | `model` | Antigravity model for every task from this Profile | Antigravity's own setting |
 | `effort` | Reasoning effort, if the model supports levels | Antigravity's own setting |
-| `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `accept-edits` |
+| `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | Send every new task to Antigravity automatically | `false` |
 | `env` | Extra environment for the child process | `{}` |
 
@@ -80,7 +80,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 ## Using it
 
-- **Automatic:** with automatic delegation on, just send a normal message — DSH hands it to Antigravity and relays the result.
+- **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
 - **While it runs:** the Session header shows a running indicator and the number of active tasks. It disappears when the task finishes, and the result arrives as a normal reply in the conversation.
 

@@ -23,6 +23,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** package name -> path relative to the harness checkout root. */
 const PACKAGES = {
   '@deepseek-ai/schemastery': 'vendor/schemastery',
+  '@deepseek-ai/dsh-agent': 'packages/core/agent',
+  '@deepseek-ai/dsh-tools': 'packages/core/tools',
   '@deepseek-ai/dsh-subagent': 'packages/subagent/subagent',
   '@deepseek-ai/dsh-subprocess': 'packages/subprocess/subprocess',
   '@deepseek-ai/dsh-timeout': 'packages/util/timeout',

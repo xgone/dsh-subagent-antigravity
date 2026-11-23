@@ -33,8 +33,8 @@ export const ANTIGRAVITY_PERMISSION_MODES = [
   'dangerously-skip-permissions',
 ]
 
-/** Safe default: auto-approve workspace edits, contain commands in the sandbox. */
-export const DEFAULT_ANTIGRAVITY_PERMISSION_MODE = 'accept-edits'
+/** Default posture: sandbox commands and do not auto-approve operations. */
+export const DEFAULT_ANTIGRAVITY_PERMISSION_MODE = 'default'
 
 /** Native `agy` reasoning-effort values (availability depends on the model). */
 export const ANTIGRAVITY_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']

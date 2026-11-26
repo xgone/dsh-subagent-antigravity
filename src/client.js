@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
         quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
         quotaTitle: 'Agy account quota',
         quotaRemaining: '{window} {percent}% left',
+        quotaShort: '{window} {percent}%',
         quotaReset: 'resets {time}',
         quotaLastUpdated: 'Updated {time}',
         quotaStale: 'stale',
@@ -62,6 +63,7 @@ window.__ModuleLoader__.load({
         quotaUnavailableHelp: '请检查 Agy CLI 是否已安装并登录。',
         quotaTitle: 'Agy 账号额度',
         quotaRemaining: '{window} 剩余 {percent}%',
+        quotaShort: '{window} {percent}%',
         quotaReset: '重置于 {time}',
         quotaLastUpdated: '更新于 {time}',
         quotaStale: '缓存数据',
@@ -321,28 +323,25 @@ window.__ModuleLoader__.load({
         if (previous === undefined || item.bucket.remainingFraction < previous.bucket.remainingFraction) windows.set(key, item)
       }
       const unique = [...windows.values()].sort((a, b) => a.bucket.remainingFraction - b.bucket.remainingFraction)
-      const compact = unique.slice(0, 2).map(({ bucket }) => t('quotaRemaining', {
+      // Compact dock reading stays short: percentages only, no reset times.
+      const compact = unique.slice(0, 2).map(({ bucket }) => t('quotaShort', {
         window: quotaWindowLabel(bucket, t),
         percent: Math.round(bucket.remainingFraction * 100),
       }))
-      const nextReset = buckets
-        .filter(({ bucket }) => typeof bucket.resetTime === 'string' && Number.isFinite(Date.parse(bucket.resetTime)) && Date.parse(bucket.resetTime) > Date.now())
-        .sort((a, b) => Date.parse(a.bucket.resetTime) - Date.parse(b.bucket.resetTime))[0]
-      const reset = nextReset === undefined ? '' : ` · ${t('quotaReset', { time: quotaDate(nextReset.bucket.resetTime) })}`
       const stale = snapshot.status === 'stale' ? ` · ${t('quotaStale')}` : ''
+      // Hover detail: every reported group and bucket, its remaining share and reset time.
       const lines = buckets.map(({ group, bucket }) => {
         const label = `${group}: ${bucket.name ?? quotaWindowLabel(bucket, t)}`
         const percent = t('quotaRemaining', { window: quotaWindowLabel(bucket, t), percent: Math.round(bucket.remainingFraction * 100) })
-        const resetTime = typeof bucket.resetTime === 'string' && Date.parse(bucket.resetTime) > Date.now()
+        const resetTime = typeof bucket.resetTime === 'string'
           ? quotaDate(bucket.resetTime)
           : null
-        const reset = resetTime === null ? '' : `; ${t('quotaReset', { time: resetTime })}`
-        return `${label} — ${percent}${reset}`
+        return `${label} — ${percent}${resetTime === null ? '' : `; ${t('quotaReset', { time: resetTime })}`}`
       })
       if (snapshot.status === 'stale') lines.push(t('quotaStale'))
       if (snapshot.fetchedAt) lines.push(t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? snapshot.fetchedAt }))
       return {
-        text: `${t('quotaLabel')} ${compact.join(' · ')}${reset}${stale}`,
+        text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
         title: [t('quotaTitle'), ...lines].join('\n'),
         status: snapshot.status === 'stale' ? 'stale' : 'ready',
         low: unique[0].bucket.remainingFraction <= 0.1,

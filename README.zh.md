@@ -23,7 +23,7 @@ Antigravity 的登录与设置完全由它自己管理。本插件不保存任�
 
 ## Agy 账号额度
 
-打开 DSH 对话后，输入框下方会显示 Agy 账号额度和重置时间。Host 通过本机 CLI 读取 `agy --print /usage --output-format json --print-timeout 30s`，额度条每分钟刷新一次，并显示剩余额度比例。此功能复用 Agy CLI 的登录状态，不直接请求 Google API。CLI 未安装或未登录时会显示额度暂不可用。
+打开 DSH 对话后，输入框下方会显示简短的 Agy 账号额度（仅剩余比例）。鼠标悬停可查看每个额度分组、重置时间和上次刷新时间。Host 通过本机 CLI 读取 `agy --print /usage --output-format json --print-timeout 30s`，每分钟刷新一次。此功能复用 Agy CLI 的登录状态，不直接请求 Google API。CLI 未安装或未登录时会显示额度暂不可用。
 
 ## 安装
 

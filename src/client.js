@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
         quotaUnavailable: 'Agy quota unavailable',
         quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
         quotaTitle: 'Agy account quota',
+        quotaNextReset: 'Next reset {time}',
         quotaRemaining: '{window} {percent}% left',
         quotaShort: '{window} {percent}%',
         quotaReset: 'resets {time}',
@@ -63,6 +64,7 @@ window.__ModuleLoader__.load({
         quotaUnavailable: 'Agy 额度暂不可用',
         quotaUnavailableHelp: '请检查 Agy CLI 是否已安装并登录。',
         quotaTitle: 'Agy 账号额度',
+        quotaNextReset: '下次重置 {time}',
         quotaRemaining: '{window} 剩余 {percent}%',
         quotaShort: '{window} {percent}%',
         quotaReset: '重置于 {time}',
@@ -308,7 +310,13 @@ window.__ModuleLoader__.load({
     }
 
     function quotaPresentation(snapshot, t) {
-      const empty = status => ({ text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'), status, low: false, rows: [] })
+      const empty = status => ({
+        text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'),
+        status,
+        low: false,
+        rows: [],
+        nextReset: null,
+      })
       if (snapshot === undefined) return empty('loading')
       if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) return empty('unavailable')
 
@@ -334,16 +342,24 @@ window.__ModuleLoader__.load({
       const stale = snapshot.status === 'stale' ? ` · ${t('quotaStale')}` : ''
       const rows = buckets.map(({ group, bucket }, index) => ({
         key: `${group}-${bucket.name ?? bucket.window ?? index}`,
-        label: `${group} · ${bucket.name ?? quotaWindowLabel(bucket, t)}`,
+        // Localize known rolling windows; keep the CLI's own label as the fallback.
+        label: `${group} · ${quotaWindowLabel(bucket, t)}`,
         percent: Math.round(bucket.remainingFraction * 100),
         fraction: bucket.remainingFraction,
         reset: typeof bucket.resetTime === 'string' ? quotaDate(bucket.resetTime) : null,
       }))
+      const nextReset = buckets
+        .map(({ bucket }) => bucket.resetTime)
+        .filter(value => typeof value === 'string'
+          && Number.isFinite(Date.parse(value))
+          && Date.parse(value) > Date.now())
+        .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null
       return {
         text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
         status: snapshot.status === 'stale' ? 'stale' : 'ready',
         low: unique[0].bucket.remainingFraction <= 0.1,
         rows,
+        nextReset,
       }
     }
 
@@ -385,7 +401,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [pos, setPos] = React.useState(null)
       const anchorRef = React.useRef(null)
-      const closeTimer = React.useRef(undefined)
+      const panelRef = React.useRef(null)
 
       React.useEffect(() => {
         let disposed = false
@@ -423,85 +439,115 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      React.useEffect(() => () => { clearTimeout(closeTimer.current) }, [])
-
       const view = quotaPresentation(snapshot, t)
+      const rowsLength = view.rows.length
 
       const place = () => {
         const el = anchorRef.current
-        if (el === null) return
+        if (el === null) return null
         const rect = el.getBoundingClientRect()
-        const width = 288
-        const height = 44 + view.rows.length * 52
+        const width = Math.min(240, Math.max(200, window.innerWidth - 24))
+        const height = 72 + rowsLength * 50
         const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
         const top = rect.top - height - 8 > 8 ? rect.top - height - 8 : rect.bottom + 8
-        setPos({ left, top, width })
-      }
-      const openPanel = () => {
-        clearTimeout(closeTimer.current)
-        place()
-        setOpen(true)
-      }
-      const scheduleClose = () => {
-        clearTimeout(closeTimer.current)
-        closeTimer.current = setTimeout(() => { setOpen(false) }, 140)
+        return { left, top, width }
       }
 
-      const color = view.low ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-label-secondary)'
-      const pill = h('span', {
+      // Click/tap opens; outside pointerdown, Escape, resize and scroll close or reposition.
+      React.useEffect(() => {
+        if (!open) return undefined
+        const reposition = () => { const next = place(); if (next !== null) setPos(next) }
+        const onPointerDown = event => {
+          const anchor = anchorRef.current
+          const panel = panelRef.current
+          if (anchor?.contains(event.target) || panel?.contains(event.target)) return
+          setOpen(false)
+        }
+        window.addEventListener('resize', reposition)
+        window.addEventListener('scroll', reposition, true)
+        document.addEventListener('pointerdown', onPointerDown, true)
+        return () => {
+          window.removeEventListener('resize', reposition)
+          window.removeEventListener('scroll', reposition, true)
+          document.removeEventListener('pointerdown', onPointerDown, true)
+        }
+      }, [open, rowsLength])
+
+      const toggle = () => {
+        if (open) { setOpen(false); return }
+        const next = place()
+        if (next === null) return
+        setPos(next)
+        setOpen(true)
+      }
+
+      const pill = h('button', {
         ref: anchorRef,
+        type: 'button',
         'data-agy-quota': view.status,
         'aria-label': view.text,
-        tabIndex: 0,
-        onMouseEnter: openPanel,
-        onMouseLeave: scheduleClose,
-        onFocus: openPanel,
-        onBlur: scheduleClose,
+        'aria-haspopup': 'dialog',
+        'aria-expanded': open,
+        onClick: toggle,
         onKeyDown: event => { if (event.key === 'Escape') setOpen(false) },
         style: {
           display: 'inline-flex',
           alignItems: 'center',
-          border: '1px solid var(--dsw-alias-border-l1)',
-          borderRadius: '999px',
-          background: 'var(--dsw-alias-bg-layer-1)',
-          color,
-          fontSize: '12px',
-          lineHeight: 1.35,
-          padding: '3px 8px',
+          boxSizing: 'border-box',
+          maxWidth: '100%',
+          padding: '1px 8px',
+          border: 'none',
+          borderRadius: 'var(--dsw-radius-sm)',
+          background: open ? 'var(--dsw-alias-interactive-bg-hover)' : 'transparent',
+          color: open ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-label-tertiary)',
+          fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
           whiteSpace: 'nowrap',
-          cursor: 'default',
+          cursor: 'pointer',
         },
       }, view.text)
 
-      const panel = open && pos !== null && view.rows.length > 0
+      const panel = open && pos !== null && rowsLength > 0
         ? createPortal(h('div', {
-          role: 'tooltip',
-          onMouseEnter: openPanel,
-          onMouseLeave: scheduleClose,
+          ref: panelRef,
+          role: 'dialog',
+          'aria-label': t('quotaTitle'),
           style: {
             position: 'fixed',
             left: `${pos.left}px`,
             top: `${pos.top}px`,
             width: `${pos.width}px`,
             zIndex: 2147483000,
+            boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px',
-            padding: '10px 12px',
-            borderRadius: '10px',
-            border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-overlay)',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.22)',
-            color: 'var(--dsw-alias-label-primary)',
+            gap: '8px',
+            padding: '12px',
+            border: '0',
+            borderRadius: 'var(--dsw-radius-lg)',
+            background: 'var(--dsw-specific-menu)',
+            backdropFilter: 'var(--dsw-menu-backdrop-filter)',
+            boxShadow: 'var(--dsw-elevation-prominent)',
+            color: 'var(--dsw-alias-label-secondary)',
+            fontSize: '12px',
+            lineHeight: '18px',
+            maxHeight: 'min(70vh, calc(100vh - 24px))',
+            overflowY: 'auto',
           },
         },
-        h('div', { style: { fontSize: '12px', fontWeight: 600 } }, t('quotaTitle')),
+        h('div', {
+          style: { fontSize: '12px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)' },
+        }, t('quotaTitle')),
+        view.nextReset === null ? null : h('div', {
+          style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
+        }, t('quotaNextReset', { time: quotaDate(view.nextReset) ?? String(view.nextReset) })),
         ...view.rows.map(row => h(QuotaBarRow, { key: row.key, row, t })),
         view.status === 'stale'
           ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-warn-primary)' } }, t('quotaStale'))
           : null,
         snapshot?.fetchedAt
-          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' } },
+          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } },
             t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? String(snapshot.fetchedAt) }))
           : null), document.body)
         : null

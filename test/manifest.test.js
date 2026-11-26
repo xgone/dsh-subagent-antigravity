@@ -31,6 +31,15 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /name: 'conversation\.composer\.dock'/u)
   assert.match(clientSource, /id: 'xgone-antigravity-quota'/u)
   assert.match(clientSource, /api\/xgone\/agy-quota/u)
+  // Mobile-friendly click trigger and the host dock's transparent resting pill.
+  assert.match(clientSource, /'aria-haspopup': 'dialog'/u)
+  assert.match(clientSource, /background: open \? 'var\(--dsw-alias-interactive-bg-hover\)' : 'transparent'/u)
+  assert.match(clientSource, /role: 'dialog'/u)
+  // Narrow panel, localized window names, next reset, and host-matched secondary font scale.
+  assert.match(clientSource, /Math\.min\(240, Math\.max\(200, window\.innerWidth - 24\)\)/u)
+  assert.match(clientSource, /quotaWindowLabel\(bucket, t\)/u)
+  assert.match(clientSource, /quotaNextReset/u)
+  assert.match(clientSource, /--dsh-content-font-size-secondary/u)
 })
 
 test('bundle and client package identities match the public npm scope', () => {

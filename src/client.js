@@ -21,8 +21,6 @@ window.__ModuleLoader__.load({
         saving: 'Saving…',
         saved: 'Saved.',
         saveFailed: 'Could not save this setting. Refresh the page and try again.',
-        statusOne: 'Antigravity is working',
-        statusMany: 'Antigravity is working ({count})',
         quotaLabel: 'Agy quota',
         quotaLoading: 'Loading Agy quota…',
         quotaUnavailable: 'Agy quota unavailable',
@@ -66,8 +64,6 @@ window.__ModuleLoader__.load({
         saving: '正在保存…',
         saved: '已保存。',
         saveFailed: '保存失败。请刷新页面后重试。',
-        statusOne: 'Antigravity 正在运行',
-        statusMany: 'Antigravity 正在运行（{count} 个任务）',
         quotaLabel: 'Agy 额度',
         quotaLoading: '正在读取 Agy 额度…',
         quotaUnavailable: 'Agy 额度暂不可用',
@@ -250,48 +246,6 @@ window.__ModuleLoader__.load({
               : 'var(--dsw-alias-label-secondary)',
           },
         }, t(feedback)))
-    }
-
-    function AntigravityStatusAction(props) {
-      const { sessionId, useSessions, t } = props
-      const count = useSessions((snapshot) => {
-        const view = snapshot.projectionsBySession?.[sessionId]?.values?.antigravityStatus
-        return typeof view?.count === 'number' ? view.count : 0
-      })
-      if (count < 1) return null
-      return h('span', {
-        role: 'status',
-        'aria-live': 'polite',
-        title: t(count === 1 ? 'statusOne' : 'statusMany', { count }),
-        style: {
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '12px',
-          whiteSpace: 'nowrap',
-        },
-      },
-      h('svg', {
-        viewBox: '0 0 24 24',
-        width: 14,
-        height: 14,
-        'aria-hidden': 'true',
-        focusable: 'false',
-      },
-      h('circle', {
-        cx: 12, cy: 12, r: 9, fill: 'none',
-        stroke: 'var(--dsw-alias-border-l2)', strokeWidth: 2,
-      }),
-      h('circle', {
-        cx: 12, cy: 12, r: 9, fill: 'none',
-        stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 2,
-        strokeDasharray: '20 60', strokeLinecap: 'round',
-      }, h('animateTransform', {
-        attributeName: 'transform', type: 'rotate',
-        from: '0 12 12', to: '360 12 12', dur: '0.9s', repeatCount: 'indefinite',
-      }))),
-      h('span', null, t(count === 1 ? 'statusOne' : 'statusMany', { count })))
     }
 
     const AGY_QUOTA_ROUTE = 'api/xgone/agy-quota'
@@ -790,12 +744,6 @@ window.__ModuleLoader__.load({
             locale: NAMESPACE,
           }, AutoDelegateConfig)), `@xgone/dsh-subagent-antigravity.config-ui:${packageName}`)
         }
-        ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-          name: 'conversation.session.header.actions',
-          id: 'xgone-antigravity-status',
-          order: 15,
-          locale: NAMESPACE,
-        }, AntigravityStatusAction)), '@xgone/dsh-subagent-antigravity.header-status-ui')
         ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'xgone-antigravity-quota',

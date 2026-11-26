@@ -12,7 +12,6 @@ This page is for maintainers. User-facing setup, configuration and troubleshooti
 - `ctx.subprocess` — managed process range for each `agy` child;
 - `ctx.storageDomain` — durable sidecar mapping a DSH child Session to its native `agy` conversation;
 - `@deepseek-ai/dsh-tool-subagent` — model-facing scheduling, bound to `subagent_antigravity`;
-- `ctx.sessionProjections` — parent-side state for the Session-header running indicator.
 
 The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-subagent-antigravity` (tool binding). The tool row pins the child Agent route with `agentOptions: { provider: agy-stream, model: native }`.
 
@@ -44,7 +43,7 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 - **No per-turn cancel message.** The CLI's stdin accepts only `user` events; cancelling disposes the process. This is the one real loss versus an ACP child.
 - **No interactive permission channel.** `permissionMode` selects static `agy` flags; an operation the CLI will not auto-approve is denied by the product (`result.denied_actions`), exactly as in headless print mode.
 - **Native configuration is authoritative.** Authentication, `settings.json`, model catalog and workspace trust stay native; only `--model`/`--effort`/`--agent`, the mode flags and the `env` overlay are set here.
-- **The header indicator is derived state.** A plugin-owned Session projection tracks `subagent_antigravity` start receipts until the durable `subagent-settled` notice; it is not the progress stream.
+- **No separate running indicator.** Because a delegation now owns a real child Session, DSH's own "N 个子智能体" header entry already shows it; the plugin contributes no badge and no parent-side projection.
 - **Settings that must change without a reload are volatile.** `permissionMode` and `autoDelegate` are editable in the Plugins form; the posture is read when a child process is spawned.
 
 ## Model Experience
@@ -68,9 +67,8 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 | `src/progress-tool.js` | `agy_progress` record-only proxy: awaits the native step, returns its real output, and projects `presentationMeta` (kind, exit code, duration) for the client row. |
 | `src/session-domain.js` | Durable child-Session → native conversation sidecar. |
 | `src/antigravity.js` | Pinned CLI flags, NDJSON feed, terminal statuses, permission posture. |
-| `src/status-projection.js` | Parent Session projection that drives the header running indicator. |
 | `src/enforcement.js` | Agent-scoped restrictions and dispatch guard for built-in subagent tools while auto-delegate is on. |
-| `src/client.js` | Browser half: Plugins configuration form, Session-header status action, quota dock, and the keyed `tool.call.toolview` row for `agy_progress` (the web client only classifies its own built-in tool names, so a custom recorder would otherwise render as a bare "tool call · name · id"). |
+| `src/client.js` | Browser half: Plugins configuration form, quota dock, and the keyed `tool.call.toolview` row for `agy_progress` (the web client only classifies its own built-in tool names, so a custom recorder would otherwise render as a bare "tool call · name · id"). |
 | `src/agy-quota.js` | Quota reader for the composer indicator. |
 | `cordis.patch.yml` | Bundle layer: provider row and tool row (route pinned). |
 | `docs/antigravity-cli-facts.md` | The pinned CLI contract, with sources. |

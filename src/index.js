@@ -23,7 +23,6 @@ import {
   DEFAULT_DISPOSE_EOF_GRACE_MS,
   DEFAULT_DISPOSE_GRACE_MS,
 } from './antigravity.js'
-import { antigravityStatusProjection } from './status-projection.js'
 import { installAutoDelegateRouting } from './enforcement.js'
 import { createAgyQuotaReader } from './agy-quota.js'
 import { AntigravityStreamLlmAdapter } from './adapter.js'
@@ -36,7 +35,6 @@ export const inject = [
   'subagents',
   'subprocess',
   'systemPrompt',
-  'sessionProjections',
   'agents',
   'tools',
   'llm',
@@ -198,8 +196,6 @@ export async function apply(ctx, config) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   installAgyQuotaRoute(ctx, resolved)
-  const statusProjection = await ctx.sessionProjections.register(antigravityStatusProjection)
-  ctx.effect(() => () => statusProjection.dispose(), 'subagent-antigravity.status-projection')
 
   const streamSessionDomain = await ctx.storageDomain.open(STREAM_SESSION_DOMAIN_SPEC)
   ctx.effect(() => () => streamSessionDomain.close(), 'subagent-antigravity.stream-session-domain')

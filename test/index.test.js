@@ -126,7 +126,7 @@ function hostContext() {
 test('plugin advertises its identity and injected services', () => {
   assert.equal(name, 'subagent-antigravity')
   assert.deepEqual([...inject], [
-    'subagents', 'subprocess', 'systemPrompt', 'sessionProjections', 'agents', 'tools', 'llm', 'storageDomain',
+    'subagents', 'subprocess', 'systemPrompt', 'agents', 'tools', 'llm', 'storageDomain',
   ])
 })
 
@@ -152,8 +152,6 @@ test('apply registers a continuable provider, the CLI LLM route and the progress
   const { ctx, registrations, projections, disposers, optionalInjections, adapterRegistrations, domainSpecs, toolRegistrations } = hostContext()
   await apply(ctx, new Config({ providerName: 'agy-prod', model: 'gemini-4-neon-high' }))
   assert.equal(registrations.length, 1)
-  assert.equal(projections[0].key, 'antigravityStatus')
-  assert.equal(disposers.has('subagent-antigravity.status-projection'), true)
   assert.deepEqual(optionalInjections, [['connection']])
   assert.equal(disposers.has('subagent-antigravity.agy-quota-reader'), true)
 

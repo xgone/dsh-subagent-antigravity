@@ -100,7 +100,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 - **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
-- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state, duration, exit code, an openable file path and the real output (expand "已调用工具"/"tools called" in the child transcript), and the child's Trajectory tab has the full turn/step view — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
+- **While it runs:** the Session header lists the live child under "N 个子智能体" (the Antigravity plugin no longer adds its own running badge — the child Session is the status). The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state, duration, exit code, an openable file path and the real output (expand "已调用工具"/"tools called" in the child transcript), and the child's Trajectory tab has the full turn/step view — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
 
 ## FAQ
 
@@ -128,8 +128,8 @@ Yes. Send another message to the child (or ask the parent to), and the plugin re
 **Does this store my API keys?**
 No. It reuses Antigravity's own authentication. Any credential you deliberately pass to the child goes through the `env` setting in your own Profile file.
 
-**Why does the header indicator sometimes not appear?**
-It only shows while a task is actually running. If a task is very short, you may miss it; the result still arrives in the conversation.
+**Where is the running indicator?**
+There is no separate Antigravity badge: the Session header's "N 个子智能体" entry is the status, and the child Session (with its live transcript and Trajectory tab) is where you see the work.
 
 ## More
 

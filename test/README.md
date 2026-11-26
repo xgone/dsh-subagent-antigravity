@@ -6,7 +6,6 @@
 |---|---|
 | `antigravity.test.js` | Pure protocol helpers: argv construction, stdin event encoding, NDJSON framing (chunk boundaries, split UTF-8), status classification, safe diagnostics. |
 | `run.integration.test.js` | Run lifecycle against a fake managed-process handle: startup gate, terminal result mapping, cancellation and disposal, without spawning `agy`. |
-| `status-projection.test.js` | The parent Session projection that drives the header running indicator. |
 | `agy-quota.test.js` | CLI usage parsing, remaining/reset normalization, cache sharing/staleness, and managed-process cancellation. |
 | `index.test.js` | Config defaults, provider registration, live `autoDelegate` updates, Agent-scoped hiding/restoration of built-in subagent tools, and the in-flight execution guard. |
 | `manifest.test.js` | Bundle metadata: peer set, patch path and published files. |

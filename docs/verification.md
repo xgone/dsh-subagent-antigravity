@@ -43,7 +43,8 @@ because the published record is engineering evidence, not a session transcript.
   inherited-tool mask cannot hide.
 - Live check: with the switch on, the parent request's tool list contained
   `subagent_antigravity` and no `subagent`/`subagent_fork`; the Agy child ran,
-  the header indicator appeared, and the completion notice relayed the result.
+  the child appeared under the header's "N 个子智能体" tree, and the completion
+  notice relayed the result.
   With the switch off, `npm test` asserts both built-in names are visible again.
 
 ## End-to-end round trip (stream-json child Session)

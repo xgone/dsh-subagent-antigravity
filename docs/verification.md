@@ -76,7 +76,9 @@ because the published record is engineering evidence, not a session transcript.
   locale), plus the last refresh. The pill shares the host dock’s transparent
   resting background and its secondary font scale. The pill uses a flex
   `order` above the shipped dock entries so it renders to the right of the
-  hard-coded ContextMeter at the row end.
+  hard-coded ContextMeter at the row end. The click panel anchors its bottom
+  edge above the pill (translateY(-100%)) with a space-derived max height, so a
+  taller rendered panel cannot overlap the dock.
 - Automated checks passed: 39 tests, `npm run check`, and
   `npm run verify:release`. Plugin Manager returned `restart-required` after the
   package was linked from its local directory. A live Slot query now shows the

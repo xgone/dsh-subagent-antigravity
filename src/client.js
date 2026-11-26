@@ -447,10 +447,17 @@ window.__ModuleLoader__.load({
         if (el === null) return null
         const rect = el.getBoundingClientRect()
         const width = Math.min(240, Math.max(200, window.innerWidth - 24))
-        const height = 72 + rowsLength * 50
         const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
-        const top = rect.top - height - 8 > 8 ? rect.top - height - 8 : rect.bottom + 8
-        return { left, top, width }
+        // Prefer opening upward and pin the panel's BOTTOM above the trigger, so an
+        // unknown rendered height can never overlap the dock. Fall back downward
+        // only when there is not enough room above.
+        const above = rect.top > 200
+        const top = above ? rect.top - 8 : rect.bottom + 8
+        const transform = above ? 'translateY(-100%)' : 'none'
+        const maxHeight = above
+          ? Math.max(120, rect.top - 16)
+          : Math.max(120, window.innerHeight - rect.bottom - 16)
+        return { left, top, width, transform, maxHeight }
       }
 
       // Click/tap opens; outside pointerdown, Escape, resize and scroll close or reposition.
@@ -521,6 +528,7 @@ window.__ModuleLoader__.load({
             left: `${pos.left}px`,
             top: `${pos.top}px`,
             width: `${pos.width}px`,
+            transform: pos.transform,
             zIndex: 2147483000,
             boxSizing: 'border-box',
             display: 'flex',
@@ -535,7 +543,7 @@ window.__ModuleLoader__.load({
             color: 'var(--dsw-alias-label-secondary)',
             fontSize: '12px',
             lineHeight: '18px',
-            maxHeight: 'min(70vh, calc(100vh - 24px))',
+            maxHeight: `${pos.maxHeight}px`,
             overflowY: 'auto',
           },
         },

@@ -70,7 +70,9 @@ because the published record is engineering evidence, not a session transcript.
   `remaining_fraction` and `reset_time`, caches the result for 60 seconds, and
   serves it through the owner-authenticated Connection route
   `/api/xgone/agy-quota`. The browser reads the document-relative route and does
-  not call Google APIs directly.
+  not call Google APIs directly. The dock reading shows remaining percentages
+  only; per-group details, reset times and the last refresh are in the hover
+  title.
 - Automated checks passed: 39 tests, `npm run check`, and
   `npm run verify:release`. Plugin Manager returned `restart-required` after the
   package was linked from its local directory. A live Slot query now shows the

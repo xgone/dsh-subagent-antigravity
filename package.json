@@ -1,6 +1,6 @@
 {
   "name": "@xgone/dsh-subagent-antigravity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Antigravity CLI (agy) subagent provider with an account quota and reset indicator in the DSH composer",
   "type": "module",
   "main": "src/index.js",

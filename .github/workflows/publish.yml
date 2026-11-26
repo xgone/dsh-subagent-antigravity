@@ -1,0 +1,42 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify only; do not publish
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Trusted Publishing needs npm >= 11.5.1 for the OIDC exchange.
+      - name: Use a trusted-publishing capable npm
+        run: npm install -g npm@^11.6.0
+      - name: Verify the release surface
+        run: |
+          npm run check
+          node --test test/manifest.test.js
+          npm run verify:release
+      # OIDC is used because no NODE_AUTH_TOKEN is provided: npm exchanges the
+      # GitHub id-token for a short-lived publish credential and attaches
+      # provenance for the public package.
+      - name: Publish to npm
+        if: github.event_name == 'release' || inputs.dry_run == false
+        run: npm publish --access public --provenance

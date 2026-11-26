@@ -27,6 +27,13 @@ window.__ModuleLoader__.load({
         quotaLoading: 'Loading Agy quota…',
         quotaUnavailable: 'Agy quota unavailable',
         quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
+        quotaSignIn: 'Sign in to agy in a terminal',
+        toolStatePreparing: 'preparing',
+        toolStateRunning: 'running',
+        toolStateDone: 'done',
+        toolStateFailed: 'failed',
+        toolExpand: 'show output',
+        toolCollapse: 'hide output',
         quotaTitle: 'Agy account quota',
         quotaNextReset: 'Next reset {time}',
         quotaRemaining: '{window} {percent}% left',
@@ -310,15 +317,19 @@ window.__ModuleLoader__.load({
     }
 
     function quotaPresentation(snapshot, t) {
-      const empty = status => ({
-        text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'),
+      const empty = (status, reason) => ({
+        text: status === 'loading'
+          ? t('quotaLoading')
+          : reason === 'auth' ? t('quotaSignIn') : t('quotaUnavailable'),
         status,
         low: false,
         rows: [],
         nextReset: null,
       })
       if (snapshot === undefined) return empty('loading')
-      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) return empty('unavailable')
+      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) {
+        return empty('unavailable', snapshot.reason)
+      }
 
       const buckets = snapshot.groups.flatMap(group => (Array.isArray(group?.buckets) ? group.buckets : [])
         .filter(bucket => typeof bucket?.remainingFraction === 'number'
@@ -566,6 +577,109 @@ window.__ModuleLoader__.load({
       return h(React.Fragment, null, pill, panel)
     }
 
+    /**
+     * One Antigravity CLI tool step inside the child Session transcript. The
+     * DSH web client only knows its own built-in tool names, so a custom tool
+     * would otherwise render as a bare "tool call · name · id" row. This keyed
+     * view shows the native command and its real output.
+     */
+    function AgyProgressRow({ block, phase, t }) {
+      const [open, setOpen] = React.useState(false)
+      const readArg = (name) => {
+        try {
+          const text = block && block.args && typeof block.args.text === 'function' ? block.args.text(name) : undefined
+          return typeof text === 'string' ? text : ''
+        } catch {
+          return ''
+        }
+      }
+      const title = readArg('title')
+      const state = phase === 'preparing' ? 'preparing'
+        : phase === 'start' ? 'running'
+          : block && block.isError ? 'failed' : 'done'
+      const output = phase === 'result' && block && Array.isArray(block.content)
+        ? block.content
+          .filter(item => item && item.type === 'text' && typeof item.text === 'string')
+          .map(item => item.text)
+          .join('\n')
+          .trim()
+        : ''
+      const stateText = t({
+        preparing: 'toolStatePreparing',
+        running: 'toolStateRunning',
+        failed: 'toolStateFailed',
+        done: 'toolStateDone',
+      }[state])
+      const expanded = open || state === 'failed'
+      const canExpand = output !== ''
+      return h('div', {
+        'data-tool': 'agy_progress',
+        'data-state': state,
+        style: { display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', minWidth: 0 },
+      },
+      h('button', {
+        type: 'button',
+        onClick: canExpand ? () => setOpen(value => !value) : undefined,
+        'aria-expanded': canExpand ? expanded : undefined,
+        style: {
+          display: 'flex', alignItems: 'baseline', gap: '8px', width: '100%',
+          padding: 0, border: 0, background: 'transparent', textAlign: 'left',
+          cursor: canExpand ? 'pointer' : 'default',
+          color: 'var(--dsw-alias-label-primary)',
+        },
+      },
+      h('span', {
+        'aria-hidden': 'true',
+        style: {
+          fontSize: '11px',
+          color: state === 'failed'
+            ? 'var(--dsw-alias-state-error-primary, #e5484d)'
+            : 'var(--dsw-alias-label-tertiary)',
+        },
+      }, canExpand ? (expanded ? '▾' : '▸') : '·'),
+      h('span', {
+        style: {
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: '12px',
+          lineHeight: '18px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          minWidth: 0,
+        },
+      }, title === '' ? 'Antigravity tool' : title),
+      h('span', {
+        style: {
+          flex: 'none',
+          fontSize: '11px',
+          color: state === 'failed'
+            ? 'var(--dsw-alias-state-error-primary, #e5484d)'
+            : 'var(--dsw-alias-label-tertiary)',
+        },
+      }, stateText),
+      canExpand ? h('span', {
+        style: {
+          marginLeft: 'auto', flex: 'none', fontSize: '11px',
+          color: 'var(--dsw-alias-label-tertiary)',
+        },
+      }, expanded ? t('toolCollapse') : t('toolExpand')) : null),
+      expanded && canExpand ? h('pre', {
+        style: {
+          margin: 0,
+          padding: '8px 10px',
+          borderRadius: '6px',
+          background: 'var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.08))',
+          color: 'var(--dsw-alias-label-secondary)',
+          fontSize: '11px',
+          lineHeight: '16px',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          maxHeight: '240px',
+          overflow: 'auto',
+        },
+      }, output) : null)
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -592,6 +706,11 @@ window.__ModuleLoader__.load({
           order: 2,
           locale: NAMESPACE,
         }, AgyQuotaDock)), '@xgone/dsh-subagent-antigravity.quota-ui')
+        ctx.effect(() => ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+          name: 'tool.call.toolview',
+          key: 'agy_progress',
+          locale: NAMESPACE,
+        }, AgyProgressRow)), '@xgone/dsh-subagent-antigravity.toolview')
       },
     }
   },

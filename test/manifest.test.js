@@ -50,6 +50,11 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /--dsh-content-font-size-secondary/u)
   assert.match(clientSource, /order: 999/u)
   assert.match(clientSource, /translateY\(-100%\)/u)
+  // The child-session progress row is a keyed client tool view, because the web
+  // client only classifies its own built-in tool names.
+  assert.match(clientSource, /name: 'tool\.call\.toolview'/u)
+  assert.match(clientSource, /key: 'agy_progress'/u)
+  assert.match(clientSource, /quotaSignIn/u)
 })
 
 test('bundle patch pins the child Agent route to the CLI adapter', () => {

@@ -94,6 +94,45 @@ because the published record is engineering evidence, not a session transcript.
   runtime. Restart DSH and authenticate before claiming a rendered/data-path
   verification.
 
+## Child-session progress rows in the web UI
+
+- First observation: the child transcript rendered each Antigravity step as a
+  bare `工具调用 · agy_progress · s2` row. Cause: the web client classifies tool
+  names against its own built-in map (`classifyTool` → `TOOL_VARIANTS`) and has
+  no use for Host-side `presentCall`; an unknown name falls back to the generic
+  row, so command and output were invisible.
+- Fix: the plugin registers a keyed client tool view
+  (`tool.call.toolview`, key `agy_progress`) that renders the command, its state
+  (`preparing`/`running`/`done`/`failed`) and the CLI's real output in an
+  expandable block (auto-expanded on failure).
+- Verified in the isolated profile: expanding `已完成 → 已调用工具` now shows
+  `▸ printf UI-CARD-OK  done  show output`, and expanding shows the CLI's own
+  `Created At … Command output: UI-CARD-OK`.
+- Remainder: DSH still groups a finished turn and its tool calls into two
+  collapse levels; the row itself is now informative but the transcript needs
+  those expansions.
+
+## Quota probe must never open a login window
+
+- Reported: with `agy` signed out, the composer quota probe repeatedly opened
+  the Google OAuth page, because `agy --print /usage` starts an interactive
+  login (`open <accounts.google.com…>`) when it has no credentials, and the
+  browser requested the route on a one-minute interval.
+- Reproduced with a scrubbed `HOME` and a stubbed `open`: the CLI invoked the
+  opener and then printed `Authentication required` to stderr (JSON stdout:
+  `status: ERROR`, `error: authentication failed or timed out`, exit 1).
+- No CLI knob disables it: `AGY_CLI_NONINTERACTIVE_HEADLESS`, `CI`, `BROWSER`,
+  and unknown `--settings` keys either still opened the browser or were
+  rejected.
+- Fix, three parts: (1) the probe process gets a private PATH whose
+  `open`/`xdg-open`/`sensible-browser`/`x-www-browser` shims exit immediately,
+  so a desktop window can never appear; (2) stderr is polled at 200 ms so the
+  stable `auth` state is reported and the process torn down immediately; (3)
+  an `auth` result is cached for ten minutes and the pill says the user must
+  sign in from a terminal.
+- Verified with a real CLI and a scrubbed home: `reason: auth` in 210 ms,
+  **zero opener invocations**.
+
 ## What this record does not claim
 
 - It does not benchmark Antigravity model quality or compare models.

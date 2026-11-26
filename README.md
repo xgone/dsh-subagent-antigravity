@@ -23,7 +23,7 @@ Antigravity keeps its own login and settings. This plugin never stores credentia
 
 ## Agy account quota
 
-When a DSH conversation is open, the composer footer shows a compact Agy account quota reading (remaining percentages only) at the right of the context-usage reading. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable or signed out, the pill reports that quota is unavailable.
+When a DSH conversation is open, the composer footer shows a compact Agy account quota reading (remaining percentages only) at the right of the context-usage reading. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable the pill reports that quota is unavailable. When the CLI is signed out the pill says you need to sign in from a terminal, and the background probe never opens a browser window — its process runs with browser openers neutralized, and a signed-out result is cached for ten minutes instead of being retried every minute.
 
 ## Install
 
@@ -100,7 +100,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 - **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
-- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a card with its real output — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
+- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state and real output (expand "已调用工具"/"tools called" in the child transcript) — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
 
 ## FAQ
 

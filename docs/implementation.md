@@ -70,7 +70,7 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 | `src/antigravity.js` | Pinned CLI flags, NDJSON feed, terminal statuses, permission posture. |
 | `src/status-projection.js` | Parent Session projection that drives the header running indicator. |
 | `src/enforcement.js` | Agent-scoped restrictions and dispatch guard for built-in subagent tools while auto-delegate is on. |
-| `src/client.js` | Browser half: Plugins configuration form, Session-header status action, quota dock. |
+| `src/client.js` | Browser half: Plugins configuration form, Session-header status action, quota dock, and the keyed `tool.call.toolview` row for `agy_progress` (the web client only classifies its own built-in tool names, so a custom recorder would otherwise render as a bare "tool call · name · id"). |
 | `src/agy-quota.js` | Quota reader for the composer indicator. |
 | `cordis.patch.yml` | Bundle layer: provider row and tool row (route pinned). |
 | `docs/antigravity-cli-facts.md` | The pinned CLI contract, with sources. |
@@ -80,6 +80,7 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 - **Cancellation ends the CLI process.** There is no per-turn cancel event; the conversation is resumed on the next message, but an in-flight turn's partial work is not recoverable.
 - **No incremental tool output.** The CLI reports `ACTIVE` then `DONE`; a long command shows a running card with no partial stdout.
 - **No interactive approval.** Only static `permissionMode` flags; the product denies what headless mode cannot prompt for.
+- **Progress rows are one group deep.** DSH groups a finished child turn under "已完成" and its tool calls under "已调用工具"; the row itself carries the command, state and full output, but the transcript still needs those two expansions.
 - **Static instance selection** — Profile rows fix provider name, model/effort/agent and tool binding; a call cannot choose them dynamically.
 - **Native auth and account state remain native** — the bundle supplies nothing for login; failures surface as a safe diagnostic plus Host stderr.
 - **Requires `agy` on the host** — no vendored CLI; a missing executable fails the first delegation.

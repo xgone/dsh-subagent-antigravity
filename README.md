@@ -21,6 +21,10 @@ Typical uses: a long review or research pass, a task that should not clutter you
 
 Antigravity keeps its own login and settings. This plugin never stores credentials, never logs in, and never changes your Antigravity configuration.
 
+## Agy account quota
+
+When a DSH conversation is open, the composer footer shows Agy account quota and reset times. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s`; the pill refreshes every minute and shows remaining fractions. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable or signed out, the pill reports that quota is unavailable.
+
 ## Install
 
 **1. Install the Antigravity CLI** (once, if you have not already):
@@ -49,7 +53,7 @@ git clone https://github.com/xgone/dsh-subagent-antigravity.git
 dsh plugin --profile <your-profile> add "$(pwd)/dsh-subagent-antigravity"
 ```
 
-Restart DSH if the installer asks you to. No `agy` process starts until you actually delegate a task.
+Restart DSH if the installer asks you to. The quota pill starts a brief local `agy --print /usage` check while the composer is open; a full Antigravity run starts only when you delegate a task.
 
 ## Configure
 

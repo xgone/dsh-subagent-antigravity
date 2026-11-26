@@ -27,6 +27,12 @@ test('manifest declares runtime peers used by the provider and patch', () => {
   assert.ok(packageJson.files.includes('icon.svg'))
 })
 
+test('Agy quota status registers as an additive composer dock entry', () => {
+  assert.match(clientSource, /name: 'conversation\.composer\.dock'/u)
+  assert.match(clientSource, /id: 'xgone-antigravity-quota'/u)
+  assert.match(clientSource, /api\/xgone\/agy-quota/u)
+})
+
 test('bundle and client package identities match the public npm scope', () => {
   assert.equal(packageJson.name, '@xgone/dsh-subagent-antigravity')
   assert.equal(packageJson.publishConfig?.access, 'public')

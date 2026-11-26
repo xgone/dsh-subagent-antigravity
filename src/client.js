@@ -22,6 +22,19 @@ window.__ModuleLoader__.load({
         saveFailed: 'Could not save this setting. Refresh the page and try again.',
         statusOne: 'Antigravity is working',
         statusMany: 'Antigravity is working ({count})',
+        quotaLabel: 'Agy quota',
+        quotaLoading: 'Loading Agy quota…',
+        quotaUnavailable: 'Agy quota unavailable',
+        quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
+        quotaTitle: 'Agy account quota',
+        quotaRemaining: '{window} {percent}% left',
+        quotaReset: 'resets {time}',
+        quotaLastUpdated: 'Updated {time}',
+        quotaStale: 'stale',
+        quotaWindowFiveHours: '5h',
+        quotaWindowWeek: 'week',
+        quotaWindowMonth: 'month',
+        quotaWindowOther: 'limit',
         permissionMode: 'Antigravity permission mode',
         permissionModeHelp: 'Headless runs cannot answer approval prompts. Auto mode may be unavailable for some accounts; in that case the CLI falls back to Default.',
         permissionDefault: 'Default — sandboxed; approval prompts can block commands',
@@ -43,6 +56,19 @@ window.__ModuleLoader__.load({
         saveFailed: '保存失败。请刷新页面后重试。',
         statusOne: 'Antigravity 正在运行',
         statusMany: 'Antigravity 正在运行（{count} 个任务）',
+        quotaLabel: 'Agy 额度',
+        quotaLoading: '正在读取 Agy 额度…',
+        quotaUnavailable: 'Agy 额度暂不可用',
+        quotaUnavailableHelp: '请检查 Agy CLI 是否已安装并登录。',
+        quotaTitle: 'Agy 账号额度',
+        quotaRemaining: '{window} 剩余 {percent}%',
+        quotaReset: '重置于 {time}',
+        quotaLastUpdated: '更新于 {time}',
+        quotaStale: '缓存数据',
+        quotaWindowFiveHours: '5 小时',
+        quotaWindowWeek: '周',
+        quotaWindowMonth: '月',
+        quotaWindowOther: '限额',
         permissionMode: 'Antigravity 权限模式',
         permissionModeHelp: '无头运行无法回应审批提示。部分账号不支持 Auto；遇到这种情况时，CLI 会回退到 Default。',
         permissionDefault: 'Default：使用沙箱；需要审批的命令可能无法执行',
@@ -254,6 +280,136 @@ window.__ModuleLoader__.load({
       h('span', null, t(count === 1 ? 'statusOne' : 'statusMany', { count })))
     }
 
+    const AGY_QUOTA_ROUTE = 'api/xgone/agy-quota'
+    const AGY_QUOTA_REFRESH_MS = 60_000
+
+    function quotaWindowLabel(bucket, t) {
+      const key = `${bucket.window ?? ''} ${bucket.name ?? ''}`.toLowerCase()
+      if (/five.?hour|5.?hours?|5h/u.test(key)) return t('quotaWindowFiveHours')
+      if (/weekly|week|7.?days?/u.test(key)) return t('quotaWindowWeek')
+      if (/monthly|month/u.test(key)) return t('quotaWindowMonth')
+      return bucket.window || bucket.name || t('quotaWindowOther')
+    }
+
+    function quotaDate(value) {
+      const date = new Date(value)
+      return Number.isFinite(date.getTime())
+        ? date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : null
+    }
+
+    function quotaPresentation(snapshot, t) {
+      if (snapshot === undefined) return { text: t('quotaLoading'), title: t('quotaLoading'), status: 'loading', low: false }
+      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) {
+        return { text: t('quotaUnavailable'), title: t('quotaUnavailableHelp'), status: 'unavailable', low: false }
+      }
+
+      const buckets = snapshot.groups.flatMap(group => (Array.isArray(group?.buckets) ? group.buckets : [])
+        .filter(bucket => typeof bucket?.remainingFraction === 'number'
+          && Number.isFinite(bucket.remainingFraction)
+          && bucket.remainingFraction >= 0
+          && bucket.remainingFraction <= 1)
+        .map(bucket => ({ group: group.name ?? 'Agy', bucket })))
+      if (buckets.length === 0) {
+        return { text: t('quotaUnavailable'), title: t('quotaUnavailableHelp'), status: 'unavailable', low: false }
+      }
+
+      const windows = new Map()
+      for (const item of buckets) {
+        const key = `${item.bucket.window ?? ''} ${item.bucket.name ?? ''}`.trim().toLowerCase()
+        const previous = windows.get(key)
+        if (previous === undefined || item.bucket.remainingFraction < previous.bucket.remainingFraction) windows.set(key, item)
+      }
+      const unique = [...windows.values()].sort((a, b) => a.bucket.remainingFraction - b.bucket.remainingFraction)
+      const compact = unique.slice(0, 2).map(({ bucket }) => t('quotaRemaining', {
+        window: quotaWindowLabel(bucket, t),
+        percent: Math.round(bucket.remainingFraction * 100),
+      }))
+      const nextReset = buckets
+        .filter(({ bucket }) => typeof bucket.resetTime === 'string' && Number.isFinite(Date.parse(bucket.resetTime)) && Date.parse(bucket.resetTime) > Date.now())
+        .sort((a, b) => Date.parse(a.bucket.resetTime) - Date.parse(b.bucket.resetTime))[0]
+      const reset = nextReset === undefined ? '' : ` · ${t('quotaReset', { time: quotaDate(nextReset.bucket.resetTime) })}`
+      const stale = snapshot.status === 'stale' ? ` · ${t('quotaStale')}` : ''
+      const lines = buckets.map(({ group, bucket }) => {
+        const label = `${group}: ${bucket.name ?? quotaWindowLabel(bucket, t)}`
+        const percent = t('quotaRemaining', { window: quotaWindowLabel(bucket, t), percent: Math.round(bucket.remainingFraction * 100) })
+        const resetTime = typeof bucket.resetTime === 'string' && Date.parse(bucket.resetTime) > Date.now()
+          ? quotaDate(bucket.resetTime)
+          : null
+        const reset = resetTime === null ? '' : `; ${t('quotaReset', { time: resetTime })}`
+        return `${label} — ${percent}${reset}`
+      })
+      if (snapshot.status === 'stale') lines.push(t('quotaStale'))
+      if (snapshot.fetchedAt) lines.push(t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? snapshot.fetchedAt }))
+      return {
+        text: `${t('quotaLabel')} ${compact.join(' · ')}${reset}${stale}`,
+        title: [t('quotaTitle'), ...lines].join('\n'),
+        status: snapshot.status === 'stale' ? 'stale' : 'ready',
+        low: unique[0].bucket.remainingFraction <= 0.1,
+      }
+    }
+
+    function AgyQuotaDock({ t }) {
+      const [snapshot, setSnapshot] = React.useState(undefined)
+      React.useEffect(() => {
+        let disposed = false
+        let inFlight = false
+        let controller
+        const refresh = async () => {
+          if (disposed || inFlight) return
+          inFlight = true
+          const current = new AbortController()
+          controller = current
+          try {
+            const response = await fetch(AGY_QUOTA_ROUTE, {
+              method: 'GET',
+              cache: 'no-store',
+              credentials: 'same-origin',
+              signal: current.signal,
+            })
+            if (!response.ok) throw new Error(`quota route returned ${response.status}`)
+            const value = await response.json()
+            if (!disposed && ['ready', 'stale', 'unavailable'].includes(value?.status)) setSnapshot(value)
+            else if (!disposed) setSnapshot({ status: 'unavailable' })
+          } catch (error) {
+            if (!disposed && error?.name !== 'AbortError') setSnapshot({ status: 'unavailable' })
+          } finally {
+            inFlight = false
+            if (controller === current) controller = undefined
+          }
+        }
+        void refresh()
+        const interval = setInterval(() => { void refresh() }, AGY_QUOTA_REFRESH_MS)
+        return () => {
+          disposed = true
+          clearInterval(interval)
+          controller?.abort()
+        }
+      }, [])
+
+      const view = quotaPresentation(snapshot, t)
+      const color = view.low
+        ? 'var(--dsw-alias-state-warn-primary)'
+        : 'var(--dsw-alias-label-secondary)'
+      return h('span', {
+        'data-agy-quota': view.status,
+        'aria-label': view.text,
+        title: view.title,
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: '999px',
+          background: 'var(--dsw-alias-bg-layer-1)',
+          color,
+          fontSize: '12px',
+          lineHeight: 1.35,
+          padding: '3px 8px',
+          whiteSpace: 'nowrap',
+        },
+      }, view.text)
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -274,6 +430,12 @@ window.__ModuleLoader__.load({
           order: 15,
           locale: NAMESPACE,
         }, AntigravityStatusAction)), '@xgone/dsh-subagent-antigravity.header-status-ui')
+        ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'xgone-antigravity-quota',
+          order: 2,
+          locale: NAMESPACE,
+        }, AgyQuotaDock)), '@xgone/dsh-subagent-antigravity.quota-ui')
       },
     }
   },

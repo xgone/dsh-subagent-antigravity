@@ -23,6 +23,7 @@ import {
 import { antigravityStatusProjection } from './status-projection.js'
 import { installAutoDelegateRouting } from './enforcement.js'
 import { antigravityStartupFailure, startAntigravityRun } from './run.js'
+import { createAgyQuotaReader } from './agy-quota.js'
 
 export const name = 'subagent-antigravity'
 export const inject = ['subagents', 'subprocess', 'systemPrompt', 'sessionProjections', 'agents', 'tools']
@@ -30,6 +31,37 @@ export const inject = ['subagents', 'subprocess', 'systemPrompt', 'sessionProjec
 const DEFAULT_PROVIDER_NAME = 'antigravity'
 const DEFAULT_COMMAND = 'agy'
 const AUTO_DELEGATE_SECTION_NAME = 'subagent-antigravity:auto-delegation'
+const AGY_QUOTA_ROUTE_PATH = '/api/xgone/agy-quota'
+
+function installAgyQuotaRoute(ctx, config) {
+  const quotaReader = createAgyQuotaReader({
+    subprocess: ctx.subprocess,
+    command: config.command,
+    env: config.env,
+    cwd: process.cwd(),
+  })
+  ctx.effect(() => async () => { await quotaReader.dispose() }, 'subagent-antigravity.agy-quota-reader')
+  ctx.inject(['connection'], (connectionCtx) => {
+    connectionCtx.effect(() => connectionCtx.connection.fetch.register({
+      path: AGY_QUOTA_ROUTE_PATH,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async (request) => {
+        if (request.signal.aborted) return new Response(null, { status: 204 })
+        try {
+          const snapshot = await quotaReader.read(request.signal)
+          if (request.signal.aborted) return new Response(null, { status: 204 })
+          return Response.json(snapshot, { headers: { 'cache-control': 'no-store' } })
+        } catch {
+          if (request.signal.aborted) return new Response(null, { status: 204 })
+          return Response.json({
+            status: 'unavailable', reason: 'internal', groups: [], fetchedAt: new Date().toISOString(),
+          }, { headers: { 'cache-control': 'no-store' } })
+        }
+      },
+    }), 'subagent-antigravity.agy-quota-route')
+  })
+}
 
 /**
  * Prompt guidance used only when `autoDelegate` is enabled. DSH retains the
@@ -141,6 +173,7 @@ export async function apply(ctx, config) {
   if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
+  installAgyQuotaRoute(ctx, resolved)
   const statusProjection = await ctx.sessionProjections.register(antigravityStatusProjection)
   ctx.effect(() => () => statusProjection.dispose(), 'subagent-antigravity.status-projection')
   ctx.subagents.registerProvider(new AntigravityProvider(resolved.providerName, ctx, resolved))

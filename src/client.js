@@ -2,6 +2,7 @@ window.__ModuleLoader__.load({
   id: '@xgone/dsh-subagent-antigravity',
   factory(require) {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const h = React.createElement
     const NAMESPACE = '@xgone/dsh-subagent-antigravity-ui'
     const PACKAGE = '@xgone/dsh-subagent-antigravity'
@@ -22,6 +23,21 @@ window.__ModuleLoader__.load({
         saveFailed: 'Could not save this setting. Refresh the page and try again.',
         statusOne: 'Antigravity is working',
         statusMany: 'Antigravity is working ({count})',
+        quotaLabel: 'Agy quota',
+        quotaLoading: 'Loading Agy quota…',
+        quotaUnavailable: 'Agy quota unavailable',
+        quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
+        quotaTitle: 'Agy account quota',
+        quotaNextReset: 'Next reset {time}',
+        quotaRemaining: '{window} {percent}% left',
+        quotaShort: '{window} {percent}%',
+        quotaReset: 'resets {time}',
+        quotaLastUpdated: 'Updated {time}',
+        quotaStale: 'stale',
+        quotaWindowFiveHours: '5h',
+        quotaWindowWeek: 'week',
+        quotaWindowMonth: 'month',
+        quotaWindowOther: 'limit',
         permissionMode: 'Antigravity permission mode',
         permissionModeHelp: 'Headless runs cannot answer approval prompts. Auto mode may be unavailable for some accounts; in that case the CLI falls back to Default.',
         permissionDefault: 'Default — sandboxed; approval prompts can block commands',
@@ -43,6 +59,21 @@ window.__ModuleLoader__.load({
         saveFailed: '保存失败。请刷新页面后重试。',
         statusOne: 'Antigravity 正在运行',
         statusMany: 'Antigravity 正在运行（{count} 个任务）',
+        quotaLabel: 'Agy 额度',
+        quotaLoading: '正在读取 Agy 额度…',
+        quotaUnavailable: 'Agy 额度暂不可用',
+        quotaUnavailableHelp: '请检查 Agy CLI 是否已安装并登录。',
+        quotaTitle: 'Agy 账号额度',
+        quotaNextReset: '下次重置 {time}',
+        quotaRemaining: '{window} 剩余 {percent}%',
+        quotaShort: '{window} {percent}%',
+        quotaReset: '重置于 {time}',
+        quotaLastUpdated: '更新于 {time}',
+        quotaStale: '缓存数据',
+        quotaWindowFiveHours: '5 小时',
+        quotaWindowWeek: '周',
+        quotaWindowMonth: '月',
+        quotaWindowOther: '限额',
         permissionMode: 'Antigravity 权限模式',
         permissionModeHelp: '无头运行无法回应审批提示。部分账号不支持 Auto；遇到这种情况时，CLI 会回退到 Default。',
         permissionDefault: 'Default：使用沙箱；需要审批的命令可能无法执行',
@@ -254,6 +285,287 @@ window.__ModuleLoader__.load({
       h('span', null, t(count === 1 ? 'statusOne' : 'statusMany', { count })))
     }
 
+    const AGY_QUOTA_ROUTE = 'api/xgone/agy-quota'
+    const AGY_QUOTA_REFRESH_MS = 60_000
+
+    function quotaWindowLabel(bucket, t) {
+      const key = `${bucket.window ?? ''} ${bucket.name ?? ''}`.toLowerCase()
+      if (/five.?hour|5.?hours?|5h/u.test(key)) return t('quotaWindowFiveHours')
+      if (/weekly|week|7.?days?/u.test(key)) return t('quotaWindowWeek')
+      if (/monthly|month/u.test(key)) return t('quotaWindowMonth')
+      return bucket.window || bucket.name || t('quotaWindowOther')
+    }
+
+    function quotaDate(value) {
+      const date = new Date(value)
+      return Number.isFinite(date.getTime())
+        ? date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : null
+    }
+
+    function quotaTone(fraction) {
+      if (fraction < 0.2) return 'var(--dsw-alias-state-error-primary)'
+      if (fraction < 0.5) return 'var(--dsw-alias-state-warn-primary)'
+      return 'var(--dsw-alias-state-success-primary)'
+    }
+
+    function quotaPresentation(snapshot, t) {
+      const empty = status => ({
+        text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'),
+        status,
+        low: false,
+        rows: [],
+        nextReset: null,
+      })
+      if (snapshot === undefined) return empty('loading')
+      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) return empty('unavailable')
+
+      const buckets = snapshot.groups.flatMap(group => (Array.isArray(group?.buckets) ? group.buckets : [])
+        .filter(bucket => typeof bucket?.remainingFraction === 'number'
+          && Number.isFinite(bucket.remainingFraction)
+          && bucket.remainingFraction >= 0
+          && bucket.remainingFraction <= 1)
+        .map(bucket => ({ group: group.name ?? 'Agy', bucket })))
+      if (buckets.length === 0) return empty('unavailable')
+
+      const windows = new Map()
+      for (const item of buckets) {
+        const key = `${item.bucket.window ?? ''} ${item.bucket.name ?? ''}`.trim().toLowerCase()
+        const previous = windows.get(key)
+        if (previous === undefined || item.bucket.remainingFraction < previous.bucket.remainingFraction) windows.set(key, item)
+      }
+      const unique = [...windows.values()].sort((a, b) => a.bucket.remainingFraction - b.bucket.remainingFraction)
+      const compact = unique.slice(0, 2).map(({ bucket }) => t('quotaShort', {
+        window: quotaWindowLabel(bucket, t),
+        percent: Math.round(bucket.remainingFraction * 100),
+      }))
+      const stale = snapshot.status === 'stale' ? ` · ${t('quotaStale')}` : ''
+      const rows = buckets.map(({ group, bucket }, index) => ({
+        key: `${group}-${bucket.name ?? bucket.window ?? index}`,
+        // Localize known rolling windows; keep the CLI's own label as the fallback.
+        label: `${group} · ${quotaWindowLabel(bucket, t)}`,
+        percent: Math.round(bucket.remainingFraction * 100),
+        fraction: bucket.remainingFraction,
+        reset: typeof bucket.resetTime === 'string' ? quotaDate(bucket.resetTime) : null,
+      }))
+      const nextReset = buckets
+        .map(({ bucket }) => bucket.resetTime)
+        .filter(value => typeof value === 'string'
+          && Number.isFinite(Date.parse(value))
+          && Date.parse(value) > Date.now())
+        .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null
+      return {
+        text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
+        status: snapshot.status === 'stale' ? 'stale' : 'ready',
+        low: unique[0].bucket.remainingFraction <= 0.1,
+        rows,
+        nextReset,
+      }
+    }
+
+    function QuotaBarRow({ row, t }) {
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+        h('div', {
+          style: {
+            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px',
+            fontSize: '12px', color: 'var(--dsw-alias-label-primary)',
+          },
+        },
+        h('span', {
+          style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+        }, row.label),
+        h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `${row.percent}%`)),
+        h('div', {
+          role: 'progressbar',
+          'aria-valuemin': 0,
+          'aria-valuemax': 100,
+          'aria-valuenow': row.percent,
+          'aria-label': row.label,
+          style: {
+            height: '6px', borderRadius: '999px', overflow: 'hidden',
+            background: 'var(--dsw-alias-bg-layer-2)',
+          },
+        }, h('div', {
+          style: {
+            width: `${row.percent}%`, height: '100%', borderRadius: '999px',
+            background: quotaTone(row.fraction), transition: 'width 200ms ease',
+          },
+        })),
+        row.reset === null ? null : h('span', {
+          style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
+        }, t('quotaReset', { time: row.reset })))
+    }
+
+    function AgyQuotaDock({ t }) {
+      const [snapshot, setSnapshot] = React.useState(undefined)
+      const [open, setOpen] = React.useState(false)
+      const [pos, setPos] = React.useState(null)
+      const anchorRef = React.useRef(null)
+      const panelRef = React.useRef(null)
+
+      React.useEffect(() => {
+        let disposed = false
+        let inFlight = false
+        let controller
+        const refresh = async () => {
+          if (disposed || inFlight) return
+          inFlight = true
+          const current = new AbortController()
+          controller = current
+          try {
+            const response = await fetch(AGY_QUOTA_ROUTE, {
+              method: 'GET',
+              cache: 'no-store',
+              credentials: 'same-origin',
+              signal: current.signal,
+            })
+            if (!response.ok) throw new Error(`quota route returned ${response.status}`)
+            const value = await response.json()
+            if (!disposed && ['ready', 'stale', 'unavailable'].includes(value?.status)) setSnapshot(value)
+            else if (!disposed) setSnapshot({ status: 'unavailable' })
+          } catch (error) {
+            if (!disposed && error?.name !== 'AbortError') setSnapshot({ status: 'unavailable' })
+          } finally {
+            inFlight = false
+            if (controller === current) controller = undefined
+          }
+        }
+        void refresh()
+        const interval = setInterval(() => { void refresh() }, AGY_QUOTA_REFRESH_MS)
+        return () => {
+          disposed = true
+          clearInterval(interval)
+          controller?.abort()
+        }
+      }, [])
+
+      const view = quotaPresentation(snapshot, t)
+      const rowsLength = view.rows.length
+
+      const place = () => {
+        const el = anchorRef.current
+        if (el === null) return null
+        const rect = el.getBoundingClientRect()
+        const width = Math.min(240, Math.max(200, window.innerWidth - 24))
+        const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
+        // Prefer opening upward and pin the panel's BOTTOM above the trigger, so an
+        // unknown rendered height can never overlap the dock. Fall back downward
+        // only when there is not enough room above.
+        const above = rect.top > 200
+        const top = above ? rect.top - 8 : rect.bottom + 8
+        const transform = above ? 'translateY(-100%)' : 'none'
+        const maxHeight = above
+          ? Math.max(120, rect.top - 16)
+          : Math.max(120, window.innerHeight - rect.bottom - 16)
+        return { left, top, width, transform, maxHeight }
+      }
+
+      // Click/tap opens; outside pointerdown, Escape, resize and scroll close or reposition.
+      React.useEffect(() => {
+        if (!open) return undefined
+        const reposition = () => { const next = place(); if (next !== null) setPos(next) }
+        const onPointerDown = event => {
+          const anchor = anchorRef.current
+          const panel = panelRef.current
+          if (anchor?.contains(event.target) || panel?.contains(event.target)) return
+          setOpen(false)
+        }
+        window.addEventListener('resize', reposition)
+        window.addEventListener('scroll', reposition, true)
+        document.addEventListener('pointerdown', onPointerDown, true)
+        return () => {
+          window.removeEventListener('resize', reposition)
+          window.removeEventListener('scroll', reposition, true)
+          document.removeEventListener('pointerdown', onPointerDown, true)
+        }
+      }, [open, rowsLength])
+
+      const toggle = () => {
+        if (open) { setOpen(false); return }
+        const next = place()
+        if (next === null) return
+        setPos(next)
+        setOpen(true)
+      }
+
+      const pill = h('button', {
+        ref: anchorRef,
+        type: 'button',
+        'data-agy-quota': view.status,
+        'aria-label': view.text,
+        'aria-haspopup': 'dialog',
+        'aria-expanded': open,
+        onClick: toggle,
+        onKeyDown: event => { if (event.key === 'Escape') setOpen(false) },
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          boxSizing: 'border-box',
+          maxWidth: '100%',
+          // The shipped ContextMeter renders after the dock slot; order lifts this
+          // pill past it so the quota reading sits at the row's right edge.
+          order: 999,
+          padding: '1px 8px',
+          border: 'none',
+          borderRadius: 'var(--dsw-radius-sm)',
+          background: open ? 'var(--dsw-alias-interactive-bg-hover)' : 'transparent',
+          color: open ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-label-tertiary)',
+          fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 'calc(20px + var(--dsh-content-font-delta-secondary, 0px))',
+          whiteSpace: 'nowrap',
+          cursor: 'pointer',
+        },
+      }, view.text)
+
+      const panel = open && pos !== null && rowsLength > 0
+        ? createPortal(h('div', {
+          ref: panelRef,
+          role: 'dialog',
+          'aria-label': t('quotaTitle'),
+          style: {
+            position: 'fixed',
+            left: `${pos.left}px`,
+            top: `${pos.top}px`,
+            width: `${pos.width}px`,
+            transform: pos.transform,
+            zIndex: 2147483000,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            padding: '12px',
+            border: '0',
+            borderRadius: 'var(--dsw-radius-lg)',
+            background: 'var(--dsw-specific-menu)',
+            backdropFilter: 'var(--dsw-menu-backdrop-filter)',
+            boxShadow: 'var(--dsw-elevation-prominent)',
+            color: 'var(--dsw-alias-label-secondary)',
+            fontSize: '12px',
+            lineHeight: '18px',
+            maxHeight: `${pos.maxHeight}px`,
+            overflowY: 'auto',
+          },
+        },
+        h('div', {
+          style: { fontSize: '12px', fontWeight: 500, color: 'var(--dsw-alias-label-primary)' },
+        }, t('quotaTitle')),
+        view.nextReset === null ? null : h('div', {
+          style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
+        }, t('quotaNextReset', { time: quotaDate(view.nextReset) ?? String(view.nextReset) })),
+        ...view.rows.map(row => h(QuotaBarRow, { key: row.key, row, t })),
+        view.status === 'stale'
+          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-warn-primary)' } }, t('quotaStale'))
+          : null,
+        snapshot?.fetchedAt
+          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } },
+            t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? String(snapshot.fetchedAt) }))
+          : null), document.body)
+        : null
+
+      return h(React.Fragment, null, pill, panel)
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -274,6 +586,12 @@ window.__ModuleLoader__.load({
           order: 15,
           locale: NAMESPACE,
         }, AntigravityStatusAction)), '@xgone/dsh-subagent-antigravity.header-status-ui')
+        ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'xgone-antigravity-quota',
+          order: 2,
+          locale: NAMESPACE,
+        }, AgyQuotaDock)), '@xgone/dsh-subagent-antigravity.quota-ui')
       },
     }
   },

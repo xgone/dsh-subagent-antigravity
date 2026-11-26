@@ -1,7 +1,7 @@
 {
   "name": "@xgone/dsh-subagent-antigravity",
   "version": "0.1.0",
-  "description": "One-shot Antigravity CLI (agy) subagent provider over the headless stream-json protocol",
+  "description": "Antigravity CLI (agy) subagent provider with an account quota and reset indicator in the DSH composer",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -80,7 +80,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
+    "check": "node --check src/index.js && node --check src/agy-quota.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
     "test": "node --test test/*.test.js",
     "verify:release": "node scripts/verify-release.mjs",
     "link-dev-deps": "node scripts/link-dev-deps.mjs"

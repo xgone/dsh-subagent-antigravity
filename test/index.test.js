@@ -9,6 +9,7 @@ function hostContext() {
   const listeners = new Map()
   const disposers = new Map()
   const guards = []
+  const optionalInjections = []
   const agents = []
   const availableTools = new Set(['subagent', 'subagent_fork', 'subagent_antigravity'])
 
@@ -39,7 +40,15 @@ function hostContext() {
 
   const ctx = {
     subagents: { registerProvider(provider) { registrations.push(provider) } },
-    subprocess: {},
+    subprocess: {
+      async resolveExecutable(command) { return command },
+      spawn() { throw new Error('unexpected quota subprocess in a headless test context') },
+    },
+    inject(names, callback) {
+      optionalInjections.push([...names])
+      if (names.every(service => service in ctx)) callback(ctx)
+      return () => {}
+    },
     agents: { list() { return [...agents] } },
     tools: {
       get(name, agent) {
@@ -80,7 +89,7 @@ function hostContext() {
     },
   }
   const guardReason = (agent, name) => guards.map(guard => guard({ agent, name })).find(reason => reason !== undefined)
-  return { ctx, registrations, projections, sections, listeners, disposers, guards, agents, availableTools, makeAgent, guardReason }
+  return { ctx, registrations, projections, sections, listeners, disposers, guards, agents, optionalInjections, availableTools, makeAgent, guardReason }
 }
 
 test('plugin advertises its identity and injected services', () => {
@@ -105,12 +114,14 @@ test('Config rejects an unknown permission mode', () => {
   assert.throws(() => new Config({ permissionMode: 'bogus' }), /permissionMode|union|expected/i)
 })
 
-test('apply registers one provider with the out-of-process capability set', async () => {
-  const { ctx, registrations, projections, disposers } = hostContext()
+test('apply registers one provider and leaves the quota route optional outside Web profiles', async () => {
+  const { ctx, registrations, projections, disposers, optionalInjections } = hostContext()
   await apply(ctx, new Config({ providerName: 'agy-prod', model: 'gemini-4-neon-high' }))
   assert.equal(registrations.length, 1)
   assert.equal(projections[0].key, 'antigravityStatus')
   assert.equal(disposers.has('subagent-antigravity.status-projection'), true)
+  assert.deepEqual(optionalInjections, [['connection']])
+  assert.equal(disposers.has('subagent-antigravity.agy-quota-reader'), true)
   const provider = registrations[0]
   assert.equal(provider.name, 'agy-prod')
   assert.equal(provider.inheritsParentContext, false)
@@ -119,6 +130,33 @@ test('apply registers one provider with the out-of-process capability set', asyn
   })
   assert.equal(typeof provider.start, 'function')
   assert.equal(provider.config.permissionMode.get(), 'default')
+})
+
+test('quota fetch route is attached only when the optional Connection service is present', async () => {
+  const { ctx, disposers } = hostContext()
+  let route
+  ctx.connection = {
+    fetch: {
+      register(value) {
+        route = value
+        return async () => {}
+      },
+    },
+  }
+
+  await apply(ctx, new Config({}))
+  assert.equal(route.path, '/api/xgone/agy-quota')
+  assert.deepEqual(route.methods, ['GET'])
+  assert.equal(route.requestBody, 'buffered')
+  const response = await route.fetch(new Request('http://localhost/api/xgone/agy-quota'))
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const snapshot = await response.json()
+  assert.equal(snapshot.status, 'unavailable')
+  assert.equal(snapshot.reason, 'cli')
+  assert.deepEqual(snapshot.groups, [])
+  assert.ok(Number.isFinite(Date.parse(snapshot.fetchedAt)))
+  await disposers.get('subagent-antigravity.agy-quota-route')()
+  await disposers.get('subagent-antigravity.agy-quota-reader')()
 })
 
 test('autoDelegate hides built-in subagents, preserves Agy, and follows live Config Form changes', async () => {

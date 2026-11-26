@@ -21,6 +21,13 @@ are the official Google Antigravity documentation.
 - `--disable-slash-commands` — disable slash/skill expansion in print mode.
 - Source: <https://antigravity.google/docs/cli/headless>.
 
+## Account quota
+
+- The quota indicator runs `agy --print /usage --output-format json --print-timeout 30s` through the local DSH subprocess service.
+- Structured output uses `command.name: "usage"`, `command.data.groups[]`, and bucket fields `remaining_fraction` and `reset_time`.
+- DSH caches the result for 60 seconds and serves it through the authenticated `/api/xgone/agy-quota` Connection route. The browser reads this same-origin route; it does not execute the CLI or call a Google API directly.
+- Source: the Agy CLI usage command and the observed `agy --print /usage --output-format json` response.
+
 ## stream-json over stdin (what this provider uses)
 
 Spawn with `--input-format stream-json --output-format stream-json`, then write

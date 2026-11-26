@@ -21,6 +21,10 @@
 
 Antigravity 的登录与设置完全由它自己管理。本插件不保存任何凭据、不代你登录，也不修改你的 Antigravity 配置。
 
+## Agy 账号额度
+
+打开 DSH 对话后，输入框下方会显示简短的 Agy 账号额度（仅剩余比例），位于上下文占用比例统计的右侧。点击或轻触额度条会弹出小面板，显示下次重置时间，并为每个额度桶显示一条进度条（额度窗口名称随界面语言切换），底部显示上次刷新时间。Host 通过本机 CLI 读取 `agy --print /usage --output-format json --print-timeout 30s`，每分钟刷新一次。此功能复用 Agy CLI 的登录状态，不直接请求 Google API。CLI 未安装或未登录时会显示额度暂不可用。
+
 ## 安装
 
 **1. 安装 Antigravity CLI**（已安装可跳过）：
@@ -49,7 +53,7 @@ git clone https://github.com/xgone/dsh-subagent-antigravity.git
 dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 ```
 
-安装器提示需要重启时重启 DSH。在你真正委派任务之前，不会启动任何 `agy` 进程。
+安装器提示需要重启时重启 DSH。对话输入框出现时，额度条会启动一次简短的本机 `agy --print /usage` 查询；只有真正委派任务时，才会启动完整的 Antigravity 子任务。
 
 ## 配置
 

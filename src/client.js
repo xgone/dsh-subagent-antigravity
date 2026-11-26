@@ -495,6 +495,9 @@ window.__ModuleLoader__.load({
           alignItems: 'center',
           boxSizing: 'border-box',
           maxWidth: '100%',
+          // The shipped ContextMeter renders after the dock slot; order lifts this
+          // pill past it so the quota reading sits at the row's right edge.
+          order: 999,
           padding: '1px 8px',
           border: 'none',
           borderRadius: 'var(--dsw-radius-sm)',

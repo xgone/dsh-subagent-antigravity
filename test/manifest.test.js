@@ -40,6 +40,7 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /quotaWindowLabel\(bucket, t\)/u)
   assert.match(clientSource, /quotaNextReset/u)
   assert.match(clientSource, /--dsh-content-font-size-secondary/u)
+  assert.match(clientSource, /order: 999/u)
 })
 
 test('bundle and client package identities match the public npm scope', () => {

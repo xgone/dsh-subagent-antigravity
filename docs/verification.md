@@ -74,7 +74,9 @@ because the published record is engineering evidence, not a session transcript.
   only; clicking or tapping the pill opens a narrow panel with the next reset
   time and one progress bar per quota bucket (window names follow the active
   locale), plus the last refresh. The pill shares the host dock’s transparent
-  resting background and its secondary font scale.
+  resting background and its secondary font scale. The pill uses a flex
+  `order` above the shipped dock entries so it renders to the right of the
+  hard-coded ContextMeter at the row end.
 - Automated checks passed: 39 tests, `npm run check`, and
   `npm run verify:release`. Plugin Manager returned `restart-required` after the
   package was linked from its local directory. A live Slot query now shows the

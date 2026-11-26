@@ -23,7 +23,7 @@ Antigravity keeps its own login and settings. This plugin never stores credentia
 
 ## Agy account quota
 
-When a DSH conversation is open, the composer footer shows a compact Agy account quota reading (remaining percentages only). Hover the pill for each quota group, its reset time and the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable or signed out, the pill reports that quota is unavailable.
+When a DSH conversation is open, the composer footer shows a compact Agy account quota reading (remaining percentages only). Hover or focus the pill for a small panel with one progress bar per quota bucket, its reset time and the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable or signed out, the pill reports that quota is unavailable.
 
 ## Install
 

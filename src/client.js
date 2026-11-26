@@ -2,6 +2,7 @@ window.__ModuleLoader__.load({
   id: '@xgone/dsh-subagent-antigravity',
   factory(require) {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const h = React.createElement
     const NAMESPACE = '@xgone/dsh-subagent-antigravity-ui'
     const PACKAGE = '@xgone/dsh-subagent-antigravity'
@@ -300,11 +301,16 @@ window.__ModuleLoader__.load({
         : null
     }
 
+    function quotaTone(fraction) {
+      if (fraction < 0.2) return 'var(--dsw-alias-state-error-primary)'
+      if (fraction < 0.5) return 'var(--dsw-alias-state-warn-primary)'
+      return 'var(--dsw-alias-state-success-primary)'
+    }
+
     function quotaPresentation(snapshot, t) {
-      if (snapshot === undefined) return { text: t('quotaLoading'), title: t('quotaLoading'), status: 'loading', low: false }
-      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) {
-        return { text: t('quotaUnavailable'), title: t('quotaUnavailableHelp'), status: 'unavailable', low: false }
-      }
+      const empty = status => ({ text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'), status, low: false, rows: [] })
+      if (snapshot === undefined) return empty('loading')
+      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) return empty('unavailable')
 
       const buckets = snapshot.groups.flatMap(group => (Array.isArray(group?.buckets) ? group.buckets : [])
         .filter(bucket => typeof bucket?.remainingFraction === 'number'
@@ -312,9 +318,7 @@ window.__ModuleLoader__.load({
           && bucket.remainingFraction >= 0
           && bucket.remainingFraction <= 1)
         .map(bucket => ({ group: group.name ?? 'Agy', bucket })))
-      if (buckets.length === 0) {
-        return { text: t('quotaUnavailable'), title: t('quotaUnavailableHelp'), status: 'unavailable', low: false }
-      }
+      if (buckets.length === 0) return empty('unavailable')
 
       const windows = new Map()
       for (const item of buckets) {
@@ -323,33 +327,66 @@ window.__ModuleLoader__.load({
         if (previous === undefined || item.bucket.remainingFraction < previous.bucket.remainingFraction) windows.set(key, item)
       }
       const unique = [...windows.values()].sort((a, b) => a.bucket.remainingFraction - b.bucket.remainingFraction)
-      // Compact dock reading stays short: percentages only, no reset times.
       const compact = unique.slice(0, 2).map(({ bucket }) => t('quotaShort', {
         window: quotaWindowLabel(bucket, t),
         percent: Math.round(bucket.remainingFraction * 100),
       }))
       const stale = snapshot.status === 'stale' ? ` · ${t('quotaStale')}` : ''
-      // Hover detail: every reported group and bucket, its remaining share and reset time.
-      const lines = buckets.map(({ group, bucket }) => {
-        const label = `${group}: ${bucket.name ?? quotaWindowLabel(bucket, t)}`
-        const percent = t('quotaRemaining', { window: quotaWindowLabel(bucket, t), percent: Math.round(bucket.remainingFraction * 100) })
-        const resetTime = typeof bucket.resetTime === 'string'
-          ? quotaDate(bucket.resetTime)
-          : null
-        return `${label} — ${percent}${resetTime === null ? '' : `; ${t('quotaReset', { time: resetTime })}`}`
-      })
-      if (snapshot.status === 'stale') lines.push(t('quotaStale'))
-      if (snapshot.fetchedAt) lines.push(t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? snapshot.fetchedAt }))
+      const rows = buckets.map(({ group, bucket }, index) => ({
+        key: `${group}-${bucket.name ?? bucket.window ?? index}`,
+        label: `${group} · ${bucket.name ?? quotaWindowLabel(bucket, t)}`,
+        percent: Math.round(bucket.remainingFraction * 100),
+        fraction: bucket.remainingFraction,
+        reset: typeof bucket.resetTime === 'string' ? quotaDate(bucket.resetTime) : null,
+      }))
       return {
         text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
-        title: [t('quotaTitle'), ...lines].join('\n'),
         status: snapshot.status === 'stale' ? 'stale' : 'ready',
         low: unique[0].bucket.remainingFraction <= 0.1,
+        rows,
       }
+    }
+
+    function QuotaBarRow({ row, t }) {
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+        h('div', {
+          style: {
+            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px',
+            fontSize: '12px', color: 'var(--dsw-alias-label-primary)',
+          },
+        },
+        h('span', {
+          style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+        }, row.label),
+        h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `${row.percent}%`)),
+        h('div', {
+          role: 'progressbar',
+          'aria-valuemin': 0,
+          'aria-valuemax': 100,
+          'aria-valuenow': row.percent,
+          'aria-label': row.label,
+          style: {
+            height: '6px', borderRadius: '999px', overflow: 'hidden',
+            background: 'var(--dsw-alias-bg-layer-2)',
+          },
+        }, h('div', {
+          style: {
+            width: `${row.percent}%`, height: '100%', borderRadius: '999px',
+            background: quotaTone(row.fraction), transition: 'width 200ms ease',
+          },
+        })),
+        row.reset === null ? null : h('span', {
+          style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
+        }, t('quotaReset', { time: row.reset })))
     }
 
     function AgyQuotaDock({ t }) {
       const [snapshot, setSnapshot] = React.useState(undefined)
+      const [open, setOpen] = React.useState(false)
+      const [pos, setPos] = React.useState(null)
+      const anchorRef = React.useRef(null)
+      const closeTimer = React.useRef(undefined)
+
       React.useEffect(() => {
         let disposed = false
         let inFlight = false
@@ -386,14 +423,41 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      React.useEffect(() => () => { clearTimeout(closeTimer.current) }, [])
+
       const view = quotaPresentation(snapshot, t)
-      const color = view.low
-        ? 'var(--dsw-alias-state-warn-primary)'
-        : 'var(--dsw-alias-label-secondary)'
-      return h('span', {
+
+      const place = () => {
+        const el = anchorRef.current
+        if (el === null) return
+        const rect = el.getBoundingClientRect()
+        const width = 288
+        const height = 44 + view.rows.length * 52
+        const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
+        const top = rect.top - height - 8 > 8 ? rect.top - height - 8 : rect.bottom + 8
+        setPos({ left, top, width })
+      }
+      const openPanel = () => {
+        clearTimeout(closeTimer.current)
+        place()
+        setOpen(true)
+      }
+      const scheduleClose = () => {
+        clearTimeout(closeTimer.current)
+        closeTimer.current = setTimeout(() => { setOpen(false) }, 140)
+      }
+
+      const color = view.low ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-label-secondary)'
+      const pill = h('span', {
+        ref: anchorRef,
         'data-agy-quota': view.status,
         'aria-label': view.text,
-        title: view.title,
+        tabIndex: 0,
+        onMouseEnter: openPanel,
+        onMouseLeave: scheduleClose,
+        onFocus: openPanel,
+        onBlur: scheduleClose,
+        onKeyDown: event => { if (event.key === 'Escape') setOpen(false) },
         style: {
           display: 'inline-flex',
           alignItems: 'center',
@@ -405,8 +469,44 @@ window.__ModuleLoader__.load({
           lineHeight: 1.35,
           padding: '3px 8px',
           whiteSpace: 'nowrap',
+          cursor: 'default',
         },
       }, view.text)
+
+      const panel = open && pos !== null && view.rows.length > 0
+        ? createPortal(h('div', {
+          role: 'tooltip',
+          onMouseEnter: openPanel,
+          onMouseLeave: scheduleClose,
+          style: {
+            position: 'fixed',
+            left: `${pos.left}px`,
+            top: `${pos.top}px`,
+            width: `${pos.width}px`,
+            zIndex: 2147483000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            padding: '10px 12px',
+            borderRadius: '10px',
+            border: '1px solid var(--dsw-alias-border-l2)',
+            background: 'var(--dsw-alias-bg-overlay)',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.22)',
+            color: 'var(--dsw-alias-label-primary)',
+          },
+        },
+        h('div', { style: { fontSize: '12px', fontWeight: 600 } }, t('quotaTitle')),
+        ...view.rows.map(row => h(QuotaBarRow, { key: row.key, row, t })),
+        view.status === 'stale'
+          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-state-warn-primary)' } }, t('quotaStale'))
+          : null,
+        snapshot?.fetchedAt
+          ? h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' } },
+            t('quotaLastUpdated', { time: quotaDate(snapshot.fetchedAt) ?? String(snapshot.fetchedAt) }))
+          : null), document.body)
+        : null
+
+      return h(React.Fragment, null, pill, panel)
     }
 
     return {

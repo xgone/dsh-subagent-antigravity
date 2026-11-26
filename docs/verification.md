@@ -7,7 +7,8 @@ because the published record is engineering evidence, not a session transcript.
 ## Protocol and lifecycle checks
 
 - `npm run check` parses every runtime module with `node --check`.
-- `npm test`: 39 tests passed. Coverage includes Agy quota parsing, remaining/reset normalization, cache coalescing and cancellation, optional Connection route registration, the pure protocol helpers (argv construction, stdin event encoding, NDJSON framing, status classification and safe diagnostics), provider lifecycle, Agent-scoped subagent-tool restrictions, manifest peers, and Session status projection.
+- `npm test`: 62 tests passed. Coverage includes Agy quota parsing and cancellation, the pure stream-json mapping (argv, turn encoder, tool kind/title/output, disjoint token accounting, finish reasons), the child-session state machine against a fake CLI (lazy `init`, tool ACTIVE→DONE, persisted conversation resume, interrupted-turn fail-closed, cancellation), the LLM adapter chunk contract, the `agy_progress` proxy, continuable provider wiring, Agent-scoped subagent-tool restrictions, manifest peers, and Session status projection.
+- `node scripts/probe-stream-session.mjs "<task>"` drives one real `agy 1.5.18` turn through session → adapter → progress tool. Observed: a `tool-calls` finish for `printf stream-ok`, the proxy returning the real command output, then streamed text and `finish {kind:'stop'}` with usage.
 - `npm run verify:release` refuses machine-local paths and credential-shaped
   strings in every publishable file.
 
@@ -45,19 +46,25 @@ because the published record is engineering evidence, not a session transcript.
   the header indicator appeared, and the completion notice relayed the result.
   With the switch off, `npm test` asserts both built-in names are visible again.
 
-## End-to-end round trip
+## End-to-end round trip (stream-json child Session)
 
-- A clean DSH Profile was created in an isolated harness home containing only
-  the base bundle, the web app bundle, and this bundle.
-- A Session was started through the Web app and a delegation was triggered.
-- The real `agy` CLI ran a read-only shell command, exited `0`, and returned
-  the workspace path plus an explicit completion marker.
-- During the run the Session header showed the Antigravity running indicator
-  and child count; after the completion notice, the indicator cleared and the
-  parent turns relayed the child result.
-- The parent model in that round trip was a deterministic local stub, so the
-  test isolates provider behavior from model quality. The child process and
-  the Session/status path were real.
+- An isolated Profile (`agy-stream-test`) was created from the shipped web
+  template and contained only the base bundle, the web app bundle and this
+  bundle. It shares the operator's DSH home, so it reuses the real model
+  credentials; it has no remote-auth bundle.
+- A Session was started through the Web app and the model was asked to delegate
+  one task with `subagent_antigravity`.
+- Result: the parent received a child id, then the completion notice; the
+  parent relayed the child's answer (`dsh-ok`) and did not run the command
+  itself. The child appeared in the header tree as `1 个子智能体` → a
+  continuable child ("可继续") with 14.6K child tokens.
+- The child Session log shows the exact bridge: step 1 is an assistant
+  `agy_progress` tool-call (`callId s2`, title `printf dsh-ok`, kind `execute`,
+  `rawInput {CommandLine:"printf dsh-ok"}`); its tool result is the CLI's real
+  tool output (`Created At … Command output:\ndsh-ok`); step 2 is the assistant
+  text `dsh-ok` with mapped usage; `turn/end` is `completed`.
+- Opened from the header tree, the child transcript renders the task prompt and
+  the streamed answer; the DSH step summary reads `1 轮 2 步`.
 
 ## Agy quota indicator
 
@@ -79,7 +86,7 @@ because the published record is engineering evidence, not a session transcript.
   hard-coded ContextMeter at the row end. The click panel anchors its bottom
   edge above the pill (translateY(-100%)) with a space-derived max height, so a
   taller rendered panel cannot overlap the dock.
-- Automated checks passed: 39 tests, `npm run check`, and
+- Automated checks passed: `npm test`, `npm run check`, and
   `npm run verify:release`. Plugin Manager returned `restart-required` after the
   package was linked from its local directory. A live Slot query now shows the
   `xgone-antigravity-quota` entry at order 2, but the browser page is at the

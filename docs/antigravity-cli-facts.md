@@ -42,14 +42,67 @@ the session with an error. Output is NDJSON events:
 
 | `event` | payload | emitted |
 |---|---|---|
-| `init` | `init` | once at stream start |
+| `init` | `init` | **once, after the first user turn is submitted** (not at spawn) |
 | `step_update` | `step_update` | per step transition / text delta |
-| `result` | `result` | once at the end (same shape as `json`) |
+| `result` | `result` | once per turn, at its end (same shape as `json`) |
 
 Closing stdin ends the session gracefully; a written prompt followed by a close
 still yields the final `result` first. `--input-format stream-json` **requires**
 `--output-format stream-json`, and prompts must go over stdin (a `-p` flag is
 dropped in this mode).
+
+Observed with `agy 1.5.18` (2026-11-26), driving one long-lived process:
+
+- **Idle spawn emits nothing.** A process whose stdin is still open but has
+  received no `user` line stays alive and silent; `init` arrives only once the
+  first turn is written. Do not gate startup on `init`.
+- **Multi-turn works on one process.** Subsequent `user` lines start further
+  turns on the same `conversation_id`; `init` is **not** repeated.
+- **`--conversation <id>` resumes across processes.** A new process given a
+  previous conversation id keeps the transcript and answers follow-ups.
+- **stdin accepts only `user`.** `{"event":"cancel"}` / `{"event":"interrupt"}`
+  are rejected with `warning: ignoring unsupported stream input message event`.
+  SIGINT kills the process (`exit 1`, `result.status = ERROR`, stderr
+  `error: context canceled`). There is no per-turn cancel.
+- **No permission channel.** Unapproved operations are denied by the product
+  (`tool` step `ERROR` + `result.denied_actions`), exactly as in print mode.
+
+### `init` payload
+
+```json
+{
+  "conversation_id": "…",
+  "init": { "cwd": "/workspace", "permission_mode": "request-review", "tools": ["run_command", "read_file", "…"] }
+}
+```
+
+`init.tools` is the advertised catalog (60 entries in 1.5.18). Executed tool
+steps may use a different name (`view_file` is advertised, `read_file` runs).
+
+### `step_update` shapes
+
+`step_update.step_index` is unique per conversation; `state` is one of
+`ACTIVE` / `DONE` / `ERROR`; `step_type` is one of `user_input` /
+`agent_response` / `tool`.
+
+```json
+// agent_response, streaming then terminal
+{ "step_index": 1, "state": "ACTIVE", "step_type": "agent_response", "text_delta": "hel" }
+{ "step_index": 1, "state": "DONE",   "step_type": "agent_response", "text_delta": "\n",
+  "duration_seconds": 8.3,
+  "usage": { "input_tokens": 14346, "output_tokens": 110, "thinking_tokens": 60,
+             "cache_read_tokens": 10052, "total_tokens": 14456 } }
+
+// tool, pending then terminal (output is product text; error carries the reason)
+{ "step_index": 2, "state": "ACTIVE", "step_type": "tool", "tool_name": "run_command",
+  "tool_info": { "name": "run_command", "parameters": { "CommandLine": "printf hi" } } }
+{ "step_index": 2, "state": "DONE",   "step_type": "tool", "tool_name": "run_command",
+  "tool_info": { "name": "run_command", "parameters": { "CommandLine": "printf hi" },
+                 "output": "Created At: …\nCommand output:\nhi" } }
+```
+
+There is no tool call id in `step_update`; `step_index` is the stable key. There
+is no incremental tool output and no reasoning stream (`thinking_tokens` only).
 
 ### `result` envelope
 

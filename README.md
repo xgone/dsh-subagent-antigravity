@@ -15,7 +15,7 @@
 
 <p align="center"><strong>Delegate a task. Keep your main DSH conversation clean.</strong></p>
 
-Give your DSH agent a second pair of hands: it can hand one self-contained task to the **Google Antigravity CLI** (`agy`), which runs it in its own fresh session inside your workspace and reports the final answer back. You keep talking to DSH; Antigravity does the work.
+Give your DSH agent a second pair of hands: it hands a self-contained task to the **Google Antigravity CLI** (`agy`), which works inside your workspace in its **own DSH child Session** — so you can open that child and watch it think, type and run tools live — and then reports the answer back. You keep talking to DSH; Antigravity does the work.
 
 Typical uses: a long review or research pass, a task that should not clutter your main conversation, or a job you want isolated in its own working directory.
 
@@ -100,7 +100,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 - **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
-- **While it runs:** the Session header shows a running indicator and the number of active tasks. It disappears when the task finishes, and the result arrives as a normal reply in the conversation.
+- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a card with its real output — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
 
 ## FAQ
 
@@ -119,11 +119,11 @@ That is the permission mode. Raise it to `auto`, or to `dangerously-skip-permiss
 **My model name is rejected.**
 Slugs must match `agy models` exactly. A wrong slug fails at run time with a safe error rather than being silently replaced.
 
-**I only got the final answer, not the step-by-step work.**
-That is intentional: the child's reasoning, tool calls and terminal output stay in Antigravity and never enter your DSH conversation. You get the answer, or a clear failure message.
+**Where do I see the step-by-step work?**
+In the child Session: open the "N 个子智能体" tree in the Session header and pick the running child. Its transcript streams assistant text and one card per Antigravity tool step with the real command output. The parent conversation still receives only the final answer or a clear failure message.
 
-**Can I continue the same Antigravity session later?**
-No. Each delegation is one fresh, one-shot `agy` run.
+**Can I continue the same Antigravity conversation later?**
+Yes. Send another message to the child (or ask the parent to), and the plugin reuses the same `agy` conversation — the CLI process is kept alive while the child Session is open and resumed with `--conversation` after a restart. Cancelling a turn ends the CLI process; the next message resumes the conversation.
 
 **Does this store my API keys?**
 No. It reuses Antigravity's own authentication. Any credential you deliberately pass to the child goes through the `env` setting in your own Profile file.

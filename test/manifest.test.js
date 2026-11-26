@@ -16,12 +16,20 @@ test('manifest declares runtime peers used by the provider and patch', () => {
     '@deepseek-ai/dsh-timeout',
     '@deepseek-ai/dsh-tool-subagent',
     '@deepseek-ai/dsh-system-prompt',
+    '@deepseek-ai/dsh-llm',
+    '@deepseek-ai/dsh-storage-domain',
     '@deepseek-ai/schemastery',
   ]) {
     assert.equal(typeof peers?.[name], 'string', `missing peer dependency ${name}`)
     assert.ok(peers[name].length > 0, `empty peer range for ${name}`)
   }
   assert.equal(packageJson.dsh.bundle.patch, './cordis.patch.yml')
+  assert.equal(packageJson.dsh.client.platform, 'web')
+  assert.deepEqual(packageJson.dsh.client.inject, [
+    '@deepseek-ai/dsh-client-locale',
+    '@deepseek-ai/dsh-client-ui-conversation',
+    '@deepseek-ai/dsh-client-ui-plugin-manager',
+  ])
   assert.ok(packageJson.files.includes('src'))
   assert.ok(packageJson.files.includes('locale/*.json'))
   assert.ok(packageJson.files.includes('icon.svg'))
@@ -42,6 +50,12 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /--dsh-content-font-size-secondary/u)
   assert.match(clientSource, /order: 999/u)
   assert.match(clientSource, /translateY\(-100%\)/u)
+})
+
+test('bundle patch pins the child Agent route to the CLI adapter', () => {
+  assert.match(bundlePatch, /provider: antigravity/u)
+  assert.match(bundlePatch, /toolName: subagent_antigravity/u)
+  assert.match(bundlePatch, /agentOptions:\n\s+provider: agy-stream\n\s+model: native/u)
 })
 
 test('bundle and client package identities match the public npm scope', () => {

@@ -4,70 +4,88 @@ This page is for maintainers. User-facing setup, configuration and troubleshooti
 
 ## What it plugs into
 
-`@xgone/dsh-subagent-antigravity` is a plain-JS Profile bundle (no build step), adapted from DSH's built-in Codex subagent provider (`packages/subagent/subagent-codex`). It uses the same seams:
+`@xgone/dsh-subagent-antigravity` is a plain-JS Profile bundle (no build step). It keeps DSH's own child Agent and child Session and drives one long-lived Antigravity CLI (`agy`) process per child over the CLI's native stream-json protocol. It uses these seams:
 
-- `ctx.subagents` — named provider registry; registers `antigravity`;
-- `ctx.subprocess` — managed process range for the `agy` child;
+- `ctx.subagents` — named provider registry; registers `antigravity` as a **continuable** provider;
+- `ctx.llm` — registers the `agy-stream` provider route whose `LlmAdapter` translates CLI events into child-session stream chunks;
+- `ctx.tools` — registers the `agy_progress` proxy tool used to record native tool steps as durable child-session rows;
+- `ctx.subprocess` — managed process range for each `agy` child;
+- `ctx.storageDomain` — durable sidecar mapping a DSH child Session to its native `agy` conversation;
 - `@deepseek-ai/dsh-tool-subagent` — model-facing scheduling, bound to `subagent_antigravity`;
 - `ctx.sessionProjections` — parent-side state for the Session-header running indicator.
 
-The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-subagent-antigravity` (tool binding). Nothing spawns until a delegation happens.
+The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-subagent-antigravity` (tool binding). The tool row pins the child Agent route with `agentOptions: { provider: agy-stream, model: native }`.
 
-## Run flow
+No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed.
 
-1. Validate the task: only non-empty text blocks; capture the child cwd.
-2. Resolve `command` through `ctx.subprocess.resolveExecutable`.
-3. Spawn `agy --input-format stream-json --output-format stream-json --disable-slash-commands <mode flags> [--model/--effort/--agent]` with piped stdio and the credential-scrubbed environment plus `env`.
-4. Write one `{"event":"user","message":{"content":[…text blocks…]}}` line to stdin.
-5. **Publish the run only after the CLI emits `init`.** A `result` before `init`, or an early exit, fails `start()` with a safe startup diagnostic.
-6. Await the `result` event. `SUCCESS` with a non-blank response → `completed`; `CANCELED`/`INTERRUPTED` → `aborted`; `ERROR`/`INVALID`/`WAITING`/`RUNNING`/missing → `error` with a safe category.
-7. Dispose: close stdin, terminate the managed range, wait for whole-tree exit.
+## Two halves
 
-### Why stream-json over stdin, not `agy -p "<task>"`
+1. **Provider (`src/index.js`)** — implements `prepareContinuable()` only. Its presence selects *local* activation: DSH reserves the child Session, creates the child Agent, owns prompt delivery, continuation, cold resume and disposal. The provider contributes no prompt and no agent loop; it only validates the child cwd.
+2. **Transport (`src/session.js` + `src/adapter.js`)** — the child Agent's LLM route. One `agy` process per child Session, resumed by `--conversation` after a disposal.
 
-`-p` puts the task on the command line (ARG_MAX limits, shell quoting, no incremental events). `--input-format stream-json` carries the prompt on stdin, emits `init`/`step_update`/`result`, and closes cleanly when stdin ends. `--disable-slash-commands` keeps task text that begins with a CLI slash command from being interpreted as one.
+## Turn flow
+
+1. DSH delivers a user message to the child; the loop calls `stream()` on the adapter.
+2. `ensureSession()` reuses the child's live CLI process, or spawns one with
+   `agy --input-format stream-json --output-format stream-json --disable-slash-commands <mode flags> [--model/--effort/--agent] [--conversation <id>]`.
+3. The adapter writes exactly one `{"event":"user","message":{"content":[…text…]}}` line and starts draining NDJSON events.
+4. `step_update` events map onto DSH stream chunks:
+   - `agent_response` + `text_delta` → `block-start`/`text-delta`;
+   - `tool` `ACTIVE` → a `tool-call` block naming `agy_progress` (title/kind/parameters), then `finish {kind:'tool-calls'}`;
+   - `tool` `DONE`/`ERROR` → recorded in the session, resolved to the waiting proxy call;
+   - `result` → close the text block, emit `usage`, then `finish` (SUCCESS→`stop`; CANCELED/INTERRUPTED→`aborted`; ERROR/INVALID/WAITING/RUNNING→`error`).
+5. `agy_progress` is a **record-only** tool: DSH executes it, it awaits the native tool's terminal event and returns the CLI's real output, so the child Session shows a pending→completed tool card without running a second command.
 
 ## Design decisions
 
-- **One fresh process and one turn per run** — no continuation, resume, pooling, progress stream or product-session persistence.
-- **Native configuration is authoritative** — authentication, `settings.json`, model catalog and workspace trust stay native. Only `--model`/`--effort`/`--agent` and the `permissionMode` flags are overridden.
-- **The terminal `result` is the only authority** — a run completes only when `status === "SUCCESS"` and `response` is non-blank. Other statuses map to `aborted` or `error`. When the terminal response is blank but assistant text streamed earlier, that text is forwarded as partial error output; the run is still reported as `invalid-result` rather than promoted to success.
-- **The header indicator is derived state** — a plugin-owned Session projection tracks `subagent_antigravity` start receipts until the durable `subagent-settled` notice, and a header action renders the count. It is not a progress stream.
-- **Settings that must change without a reload are volatile** — `permissionMode` and `autoDelegate` are editable in the Plugins form. A switch change updates both the prompt section and the live tool policy.
+- **One long-lived process per child Session.** A DSH child is a conversation; the CLI process is its runtime. Repeated turns reuse the process and its conversation, paying the ~10 s CLI startup once.
+- **`init` is not a handshake.** The CLI emits `init` only when the first turn is submitted, so `open()` proves liveness by process survival, and the native conversation id is captured from the first `init` (and from every `result`) and persisted. A child that was interrupted mid-turn fails closed on reopen rather than replaying.
+- **Resume over replay.** After a disposal (including cancellation) the next activation respawns with `--conversation <id>`, so a response the model already delivered is never rerun.
+- **No per-turn cancel message.** The CLI's stdin accepts only `user` events; cancelling disposes the process. This is the one real loss versus an ACP child.
+- **No interactive permission channel.** `permissionMode` selects static `agy` flags; an operation the CLI will not auto-approve is denied by the product (`result.denied_actions`), exactly as in headless print mode.
+- **Native configuration is authoritative.** Authentication, `settings.json`, model catalog and workspace trust stay native; only `--model`/`--effort`/`--agent`, the mode flags and the `env` overlay are set here.
+- **The header indicator is derived state.** A plugin-owned Session projection tracks `subagent_antigravity` start receipts until the durable `subagent-settled` notice; it is not the progress stream.
+- **Settings that must change without a reload are volatile.** `permissionMode` and `autoDelegate` are editable in the Plugins form; the posture is read when a child process is spawned.
 
 ## Model Experience
 
-**Child request.** The child receives the standalone text blocks as one turn in a fresh `agy` session. Its workspace is the selected child cwd; the provider instance fixes any configured model, effort, agent, environment and permission posture. The CLI version and authentication come from the host `agy`.
+**Child request.** The child Agent is a fresh, unseeded DSH session pinned to the `agy-stream`/`native` route. Its system prompt and tool declarations are DSH's own, but the CLI ignores them: the Antigravity agent performs its own planning and tool execution. The only DSH tool the child ever "calls" is the `agy_progress` recorder.
 
-**Token effect.** The child pays for an independent Antigravity context. Child tokens do not enter the parent's context.
+**Live progress.** Because the CLI streams, the child Session fills in while the work happens: assistant text types out, and every native tool step appears as a card with its real output. Reasoning text is not exposed by the CLI.
 
-**Parent scheduling and results.** Through `@deepseek-ai/dsh-tool-subagent`, the parent first receives a child id, then the selected answer or a failure notice with stop reason and safe diagnostic. Reasoning, tool traffic, stderr and diffs are not copied into the parent Session. This provider adds no parent tool schema by itself.
+**Token effect.** Token usage comes from each turn's native `usage` block, mapped to DSH's disjoint counters (`input_tokens` folds cache hits, so `cacheReadTokens` is subtracted out). Child tokens never enter the parent's context.
+
+**Parent scheduling and results.** Through `@deepseek-ai/dsh-tool-subagent`, the parent first receives a child id, then the child's completion notice with the selected answer or a failure notice. The parent can continue the same child with `send_message`, which reuses the CLI conversation.
 
 ## Source map
 
 | File | Role |
 |---|---|
-| `src/index.js` | Plugin entry: Config schema, provider registration, `apply`. |
-| `src/run.js` | Run lifecycle: resolve executable, spawn, startup gate, result mapping, dispose. |
-| `src/antigravity.js` | Pure protocol: argv, user-event encoding, NDJSON feed, status classification, diagnostics. |
+| `src/index.js` | Plugin entry: Config schema, provider registration, adapter/tool/domain wiring, quota route, `apply`. |
+| `src/stream-json.js` | Pure protocol mapping: argv, turn encoder, tool kind/title/output, usage, finish reasons. |
+| `src/session.js` | One CLI child process: NDJSON feed, step bookkeeping, turn state, persistence, teardown. |
+| `src/adapter.js` | `LlmAdapter` over the CLI: session reuse, chunk mapping, user-task extraction. |
+| `src/progress-tool.js` | `agy_progress` record-only proxy and its card renderers. |
+| `src/session-domain.js` | Durable child-Session → native conversation sidecar. |
+| `src/antigravity.js` | Pinned CLI flags, NDJSON feed, terminal statuses, permission posture. |
 | `src/status-projection.js` | Parent Session projection that drives the header running indicator. |
 | `src/enforcement.js` | Agent-scoped restrictions and dispatch guard for built-in subagent tools while auto-delegate is on. |
-| `src/client.js` | Browser half: Plugins configuration form and Session-header status action. |
-| `cordis.patch.yml` | Bundle layer: provider row and tool row. |
+| `src/client.js` | Browser half: Plugins configuration form, Session-header status action, quota dock. |
+| `src/agy-quota.js` | Quota reader for the composer indicator. |
+| `cordis.patch.yml` | Bundle layer: provider row and tool row (route pinned). |
 | `docs/antigravity-cli-facts.md` | The pinned CLI contract, with sources. |
 
 ## Known limitations
 
-- **One fresh process and one turn per run** — no continuation, resume, pooling, progress stream or product-session persistence.
+- **Cancellation ends the CLI process.** There is no per-turn cancel event; the conversation is resumed on the next message, but an in-flight turn's partial work is not recoverable.
+- **No incremental tool output.** The CLI reports `ACTIVE` then `DONE`; a long command shows a running card with no partial stdout.
+- **No interactive approval.** Only static `permissionMode` flags; the product denies what headless mode cannot prompt for.
 - **Static instance selection** — Profile rows fix provider name, model/effort/agent and tool binding; a call cannot choose them dynamically.
-- **Native auth and account state remain native** — the bundle supplies nothing for login; configuration and authentication failures surface as a safe `unknown`/`product-error` diagnostic plus Host stderr.
-- **Requires `agy` on the host** — no vendored CLI and no `PATH` fallback beyond `command`; a missing executable fails the first delegation.
-- **No human approval path** — `permissionMode` chooses an unattended posture; nothing creates a DSH interaction channel.
-- **Automatic delegation has a bounded hard policy** — while `autoDelegate` is on, Agent-scoped `tools.restrict()` hides the inherited `subagent` and `subagent_fork` tools, and a dispatch guard blocks an in-flight call or same-named scoped shadow. The prompt asks the model to call `subagent_antigravity`. The model can still answer directly or use unrelated tools; the plugin does not rewrite the Agent loop.
-- **Assistant payload is the final `response` only** — reasoning, tool output, usage, stderr and diffs stay outside the parent Session.
-- **No optional shared capabilities** — `agentPreset`, `agentOptions`, `outputSchema` and harness depth enforcement are rejected by the shared service for this provider.
-- **No wall-clock timeout or side-effect rollback** — the caller cancels long work; files changed before cancellation are not restored.
-- **Pinned to the documented CLI contract** — a CLI change that alters the envelope or event names must refresh this provider.
+- **Native auth and account state remain native** — the bundle supplies nothing for login; failures surface as a safe diagnostic plus Host stderr.
+- **Requires `agy` on the host** — no vendored CLI; a missing executable fails the first delegation.
+- **Automatic delegation has a bounded hard policy** — while `autoDelegate` is on, Agent-scoped `tools.restrict()` hides the inherited `subagent` and `subagent_fork` tools, and a dispatch guard blocks an in-flight call or same-named scoped shadow. The prompt asks the model to call `subagent_antigravity`; the plugin does not rewrite the Agent loop.
+- **No wall-clock timeout or side-effect rollback** — the caller cancels; files changed before cancellation are not restored.
+- **Pinned to the observed CLI contract** — a CLI upgrade that changes event names or `step_update` shapes must refresh this provider and its fixtures.
 
 ## Repository layout
 
@@ -80,13 +98,15 @@ The bundle inserts two Host rows: `subagent-antigravity` (provider) and `tool-su
 ├── docs/                         CLI contract, implementation notes, verification
 ├── scripts/
 │   ├── link-dev-deps.mjs         link DSH peers for local tests
+│   ├── probe-stream-session.mjs  drive one real CLI turn through the bridge
 │   └── verify-release.mjs        refuse secrets / machine paths before publish
-├── test/                         unit, manifest, lifecycle and projection tests
+├── test/                         unit, manifest, session, adapter and projection tests
 └── package.json                  bundle metadata and scripts
 ```
 
-## Dev note
+## Dev notes
 
-- **Local testing.** `node scripts/link-dev-deps.mjs --checkout <deepseek-harness>` symlinks the `@deepseek-ai/*` packages this bundle imports into `node_modules` for direct unit tests. `npm test` runs protocol tests, manifest peer checks, fake-CLI lifecycle integration tests (`test/run.integration.test.js`, no real `agy`), and the projection tests.
+- **Local testing.** `node scripts/link-dev-deps.mjs --checkout <deepseek-harness>` symlinks the `@deepseek-ai/*` packages this bundle imports into `node_modules` for direct unit tests. `npm test` runs protocol mapping tests, the session state machine against a fake CLI, adapter chunk tests, the progress proxy, manifest peer checks and the projection tests — no real `agy` needed.
+- **Real-CLI probe.** `node scripts/probe-stream-session.mjs "<task>"` drives one real turn through session → adapter → progress tool without booting a Host. It needs an authenticated `agy` (`AGY_CLI` overrides the path).
 - **Checks.** `npm run check` runs `node --check` on every runtime module; `npm run verify:release` refuses machine-local paths and credential-shaped strings before publishing.
 - **Protocol facts.** See [`docs/antigravity-cli-facts.md`](antigravity-cli-facts.md) for the exact flags, event shapes and status values this package is written against.

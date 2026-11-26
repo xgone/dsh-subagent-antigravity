@@ -7,6 +7,10 @@
 #   subagent-antigravity : registers provider name `antigravity` on ctx.subagents
 #   tool-subagent-antigravity : exposes `subagent_antigravity` as a global tool
 #
+# The child Agent route is pinned to the CLI adapter this plugin registers
+# (`agy-stream`/`native`): DSH owns the child Session, the Antigravity CLI owns
+# the model calls and its own tool execution.
+#
 # Install with:
 #   dsh plugin --profile <name> add /path/to/antigravity-subagent
 # or in-session via plugin_manager's install_bundle with that absolute directory.
@@ -18,4 +22,6 @@
       config:
         provider: antigravity
         toolName: subagent_antigravity
-        maxDepth: provider-managed
+        agentOptions:
+          provider: agy-stream
+          model: native

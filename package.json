@@ -1,7 +1,7 @@
 {
   "name": "@xgone/dsh-subagent-antigravity",
-  "version": "0.2.0",
-  "description": "Antigravity CLI (agy) subagent provider with an account quota and reset indicator in the DSH composer",
+  "version": "0.3.0",
+  "description": "Antigravity CLI (agy) subagent with a real DSH child Session, live CLI tool progress and an account quota indicator",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -51,6 +51,8 @@
     "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.2-rc.1",
     "@deepseek-ai/dsh-session-projection": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-storage-domain": "^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.19.0",
     "zod": "^4.4.3"
   },
@@ -80,7 +82,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/agy-quota.js && node --check src/run.js && node --check src/antigravity.js && node --check src/status-projection.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
+    "check": "node --check src/index.js && node --check src/agy-quota.js && node --check src/antigravity.js && node --check src/stream-json.js && node --check src/session.js && node --check src/adapter.js && node --check src/progress-tool.js && node --check src/session-domain.js && node --check src/status-projection.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
     "test": "node --test test/*.test.js",
     "verify:release": "node scripts/verify-release.mjs",
     "link-dev-deps": "node scripts/link-dev-deps.mjs"

@@ -65,7 +65,7 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 | `src/stream-json.js` | Pure protocol mapping: argv, turn encoder, tool kind/title/output, usage, finish reasons. |
 | `src/session.js` | One CLI child process: NDJSON feed, step bookkeeping, turn state, persistence, teardown. |
 | `src/adapter.js` | `LlmAdapter` over the CLI: session reuse, chunk mapping, user-task extraction. |
-| `src/progress-tool.js` | `agy_progress` record-only proxy and its card renderers. |
+| `src/progress-tool.js` | `agy_progress` record-only proxy: awaits the native step, returns its real output, and projects `presentationMeta` (kind, exit code, duration) for the client row. |
 | `src/session-domain.js` | Durable child-Session → native conversation sidecar. |
 | `src/antigravity.js` | Pinned CLI flags, NDJSON feed, terminal statuses, permission posture. |
 | `src/status-projection.js` | Parent Session projection that drives the header running indicator. |

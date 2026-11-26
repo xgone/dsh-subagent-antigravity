@@ -111,6 +111,15 @@ because the published record is engineering evidence, not a session transcript.
 - Remainder: DSH still groups a finished turn and its tool calls into two
   collapse levels; the row itself is now informative but the transcript needs
   those expansions.
+- Second pass added the row's native-like detail: kind glyph, duration, exit
+  code, an openable workspace path (via the tool view's `openFile`), and the raw
+  arguments in the expanded body. Verified in the isolated profile with a
+  `run_command` row (`$ printf ROW2  done  1.6s  exit 0`) and a `read_file` row
+  (path + `. /antigravity-subagent/cordis.patch.yml` link).
+- Continuation verified end to end: after the child settled, a new message in
+  the child session answered `ROW2` from the earlier turn — the CLI process had
+  already exited, so this exercised the `--conversation` resume path. The child's
+  Trajectory tab showed both turns and all four steps.
 
 ## Quota probe must never open a login window
 

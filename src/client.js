@@ -34,6 +34,8 @@ window.__ModuleLoader__.load({
         toolStateFailed: 'failed',
         toolExpand: 'show output',
         toolCollapse: 'hide output',
+        toolArguments: 'arguments',
+        toolExitCode: 'exit {code}',
         quotaTitle: 'Agy account quota',
         quotaNextReset: 'Next reset {time}',
         quotaRemaining: '{window} {percent}% left',
@@ -583,17 +585,50 @@ window.__ModuleLoader__.load({
      * would otherwise render as a bare "tool call · name · id" row. This keyed
      * view shows the native command and its real output.
      */
-    function AgyProgressRow({ block, phase, t }) {
-      const [open, setOpen] = React.useState(false)
-      const readArg = (name) => {
-        try {
-          const text = block && block.args && typeof block.args.text === 'function' ? block.args.text(name) : undefined
-          return typeof text === 'string' ? text : ''
-        } catch {
-          return ''
-        }
+    const toolKindGlyphs = {
+      execute: '$',
+      read: '▤',
+      edit: '✎',
+      delete: '⌫',
+      move: '⇄',
+      search: '⌕',
+      fetch: '↧',
+      other: '·',
+    }
+
+    function agyReadArg(block, name) {
+      try {
+        const text = block && block.args && typeof block.args.text === 'function' ? block.args.text(name) : undefined
+        return typeof text === 'string' ? text : ''
+      } catch {
+        return ''
       }
-      const title = readArg('title')
+    }
+
+    function agyParseJson(text) {
+      if (typeof text !== 'string' || text === '') return undefined
+      try {
+        return JSON.parse(text)
+      } catch {
+        return undefined
+      }
+    }
+
+    /**
+     * One Antigravity CLI tool step inside the child Session transcript. The
+     * DSH web client only classifies its own built-in tool names, so a custom
+     * recorder would render as a bare "tool call · name · id" row. This keyed
+     * view shows the native command, its state, duration, exit code, the file it
+     * touched (openable) and the CLI's real output.
+     */
+    function AgyProgressRow({ block, phase, t, openFile, cwd }) {
+      const [open, setOpen] = React.useState(false)
+      const title = agyReadArg(block, 'title')
+      const rawInputText = agyReadArg(block, 'rawInputText')
+      const meta = phase === 'result' && block && typeof block.meta === 'object' && block.meta !== null
+        ? block.meta
+        : undefined
+      const kind = meta && typeof meta.kind === 'string' ? meta.kind : agyReadArg(block, 'kind') || 'other'
       const state = phase === 'preparing' ? 'preparing'
         : phase === 'start' ? 'running'
           : block && block.isError ? 'failed' : 'done'
@@ -604,80 +639,141 @@ window.__ModuleLoader__.load({
           .join('\n')
           .trim()
         : ''
-      const stateText = t({
+      const parameters = agyParseJson(rawInputText)
+      const path = parameters !== null && typeof parameters === 'object'
+        ? ['Path', 'path', 'file_path', 'FilePath', 'AbsolutePath', 'DirectoryPath', 'TargetFile']
+          .map(key => parameters[key])
+          .find(value => typeof value === 'string' && value.trim() !== '')
+        : undefined
+      const summary = typeof path === 'string' && typeof cwd === 'string' && cwd !== '' && path.startsWith(cwd)
+        ? `.${path.slice(cwd.length) === '' ? '/' : path.slice(cwd.length)}`
+        : path
+      const duration = meta && typeof meta.durationSeconds === 'number'
+        ? `${meta.durationSeconds < 10 ? meta.durationSeconds.toFixed(1) : Math.round(meta.durationSeconds)}s`
+        : ''
+      const exitCode = meta && Number.isInteger(meta.exitCode) ? meta.exitCode : undefined
+      const stateKey = {
         preparing: 'toolStatePreparing',
         running: 'toolStateRunning',
         failed: 'toolStateFailed',
         done: 'toolStateDone',
-      }[state])
+      }[state]
+      const stateText = t(stateKey)
+      const glyph = toolKindGlyphs[kind] ?? toolKindGlyphs.other
       const expanded = open || state === 'failed'
-      const canExpand = output !== ''
+      const bodyBlocks = []
+      if (expanded) {
+        if (rawInputText !== '') {
+          bodyBlocks.push(h('div', { key: 'args', style: { display: 'flex', gap: '6px' } },
+            h('span', { style: { flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, t('toolArguments')),
+            h('pre', {
+              style: {
+                margin: 0, minWidth: 0, fontSize: '11px', lineHeight: '16px',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                color: 'var(--dsw-alias-label-tertiary)',
+              },
+            }, rawInputText)))
+        }
+        if (output !== '') {
+          bodyBlocks.push(h('pre', {
+            key: 'out',
+            style: {
+              margin: 0,
+              padding: '8px 10px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.08))',
+              color: 'var(--dsw-alias-label-secondary)',
+              fontSize: '11px',
+              lineHeight: '16px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: '240px',
+              overflow: 'auto',
+            },
+          }, output))
+        }
+      }
+      const canExpand = output !== '' || rawInputText !== ''
       return h('div', {
         'data-tool': 'agy_progress',
         'data-state': state,
-        style: { display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', minWidth: 0 },
+        style: { display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', minWidth: 0 },
       },
       h('button', {
         type: 'button',
         onClick: canExpand ? () => setOpen(value => !value) : undefined,
         'aria-expanded': canExpand ? expanded : undefined,
         style: {
-          display: 'flex', alignItems: 'baseline', gap: '8px', width: '100%',
+          display: 'flex', alignItems: 'baseline', gap: '8px', width: '100%', minWidth: 0,
           padding: 0, border: 0, background: 'transparent', textAlign: 'left',
           cursor: canExpand ? 'pointer' : 'default',
           color: 'var(--dsw-alias-label-primary)',
+          fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
         },
       },
       h('span', {
         'aria-hidden': 'true',
         style: {
-          fontSize: '11px',
+          flex: 'none',
+          width: '10px',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           color: state === 'failed'
             ? 'var(--dsw-alias-state-error-primary, #e5484d)'
             : 'var(--dsw-alias-label-tertiary)',
         },
-      }, canExpand ? (expanded ? '▾' : '▸') : '·'),
+      }, glyph),
       h('span', {
         style: {
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          fontSize: '12px',
-          lineHeight: '18px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
         },
       }, title === '' ? 'Antigravity tool' : title),
+      summary === undefined ? null : h('span', {
+        style: {
+          flex: 'none', fontSize: '11px',
+          color: 'var(--dsw-alias-label-tertiary)',
+        },
+      }, summary),
       h('span', {
         style: {
-          flex: 'none',
-          fontSize: '11px',
+          flex: 'none', fontSize: '11px',
           color: state === 'failed'
             ? 'var(--dsw-alias-state-error-primary, #e5484d)'
             : 'var(--dsw-alias-label-tertiary)',
         },
       }, stateText),
+      duration === '' ? null : h('span', {
+        style: { flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', fontVariantNumeric: 'tabular-nums' },
+      }, duration),
+      exitCode === undefined ? null : h('span', {
+        style: {
+          flex: 'none', fontSize: '11px', fontVariantNumeric: 'tabular-nums',
+          color: exitCode === 0
+            ? 'var(--dsw-alias-state-success-primary, #46a758)'
+            : 'var(--dsw-alias-state-error-primary, #e5484d)',
+        },
+      }, t('toolExitCode', { code: exitCode })),
       canExpand ? h('span', {
-        style: {
-          marginLeft: 'auto', flex: 'none', fontSize: '11px',
-          color: 'var(--dsw-alias-label-tertiary)',
-        },
+        style: { marginLeft: 'auto', flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' },
       }, expanded ? t('toolCollapse') : t('toolExpand')) : null),
-      expanded && canExpand ? h('pre', {
-        style: {
-          margin: 0,
-          padding: '8px 10px',
-          borderRadius: '6px',
-          background: 'var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.08))',
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '11px',
-          lineHeight: '16px',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          maxHeight: '240px',
-          overflow: 'auto',
-        },
-      }, output) : null)
+      typeof path === 'string' && typeof openFile === 'function'
+        ? h('button', {
+          type: 'button',
+          onClick: () => { openFile(path) },
+          style: {
+            alignSelf: 'flex-start',
+            padding: 0,
+            border: 0,
+            background: 'transparent',
+            cursor: 'pointer',
+            fontSize: '11px',
+            color: 'var(--dsw-alias-label-tertiary)',
+            textDecoration: 'underline',
+            textUnderlineOffset: '2px',
+          },
+        }, summary ?? path)
+        : null,
+      ...bodyBlocks)
     }
 
     return {

@@ -1,6 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { callResultText } from './adapter.js'
-import { PROGRESS_TOOL_NAME, STREAM_PROVIDER, oneLine } from './stream-json.js'
+import { PROGRESS_TOOL_NAME, STREAM_PROVIDER, oneLine, parseExitCode, toolPath } from './stream-json.js'
 
 function parseJson(value) {
   if (typeof value !== 'string' || value.length === 0) return undefined
@@ -38,19 +38,37 @@ export function createAgyProgressTool(adapter) {
           title: { type: 'string', required: true },
           status: { type: 'string', required: true },
           outputText: { type: 'string', required: true },
+          exitCode: { type: 'integer' },
+          durationSeconds: { type: 'number' },
+          path: { type: 'string' },
         },
       },
       render: (_args, value) => [{ type: 'text', text: value.outputText }],
+      // The child transcript reads these through the client tool view; they are
+      // cheap display facts, never model-visible result content.
+      presentationMeta(args, value) {
+        return {
+          kind: typeof args.kind === 'string' ? args.kind : 'other',
+          ...typeof value.exitCode === 'number' ? { exitCode: value.exitCode } : {},
+          ...typeof value.durationSeconds === 'number' ? { durationSeconds: value.durationSeconds } : {},
+        }
+      },
     },
     async execute(args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('Antigravity progress bridge requires its child Agent')
       const call = await adapter.waitForToolCall(agent.session.id, args.callId, exec.signal)
+      const outputText = callResultText(call)
+      const exitCode = parseExitCode(outputText)
+      const path = toolPath(call.rawInput)
       return {
         callId: args.callId,
         title: oneLine(call.title) || args.title || 'Antigravity tool',
         status: typeof call.status === 'string' ? call.status : 'unknown',
-        outputText: callResultText(call),
+        outputText,
+        ...exitCode === undefined ? {} : { exitCode },
+        ...typeof call.durationSeconds === 'number' ? { durationSeconds: call.durationSeconds } : {},
+        ...path === undefined ? {} : { path },
       }
     },
     presentCall(args) {

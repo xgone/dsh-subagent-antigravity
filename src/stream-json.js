@@ -203,6 +203,33 @@ export function toolOutputText(toolInfo) {
 }
 
 /**
+ * Exit code reported inside a native command result, when present.
+ * @param {unknown} outputText
+ * @returns {number | undefined}
+ */
+export function parseExitCode(outputText) {
+  if (typeof outputText !== 'string') return undefined
+  const match = /exited with code (-?\d+)/i.exec(outputText) ?? /exit code[: ]+(-?\d+)/i.exec(outputText)
+  if (match === null) return undefined
+  const code = Number(match[1])
+  return Number.isInteger(code) ? code : undefined
+}
+
+/**
+ * Absolute path a file-oriented native tool acted on.
+ * @param {unknown} parameters - native `tool_info.parameters`.
+ * @returns {string | undefined}
+ */
+export function toolPath(parameters) {
+  if (parameters === null || typeof parameters !== 'object') return undefined
+  for (const key of ['Path', 'path', 'file_path', 'FilePath', 'AbsolutePath', 'DirectoryPath', 'TargetFile']) {
+    const value = parameters[key]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return undefined
+}
+
+/**
  * Translate a native usage block into DSH token accounting.
  *
  * `agy` reports `input_tokens` including cache hits, while DSH counts cached

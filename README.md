@@ -100,7 +100,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 - **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
-- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state and real output (expand "已调用工具"/"tools called" in the child transcript) — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
+- **While it runs:** the Session header shows a running indicator and the number of active tasks. The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state, duration, exit code, an openable file path and the real output (expand "已调用工具"/"tools called" in the child transcript), and the child's Trajectory tab has the full turn/step view — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
 
 ## FAQ
 

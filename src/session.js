@@ -159,6 +159,7 @@ export class AsyncEventQueue {
  * @property {string} kind
  * @property {unknown} rawInput
  * @property {string} status
+ * @property {number} [durationSeconds]
  * @property {string} [output]
  * @property {string} [error]
  * @property {{promise: Promise<NativeToolCall>, resolve: (call: NativeToolCall) => void, settled: boolean}} result
@@ -367,6 +368,9 @@ export class StreamJsonChildSession {
     if (existing === undefined) this.toolCalls.set(callId, call)
     if (call.result.settled) return
     call.status = state === 'ERROR' ? 'failed' : 'completed'
+    if (typeof step.duration_seconds === 'number' && Number.isFinite(step.duration_seconds)) {
+      call.durationSeconds = step.duration_seconds
+    }
     call.output = toolOutputText(info)
     if (state === 'ERROR') {
       call.error = call.output === '' ? 'Antigravity tool failed' : call.output

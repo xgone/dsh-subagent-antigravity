@@ -184,23 +184,33 @@ test('the progress proxy records the completed CLI tool without executing it aga
     async waitForToolCall(sessionId, callId) {
       assert.equal(sessionId, 'child-6')
       assert.equal(callId, 's2')
-      return { title: 'printf hello', status: 'completed', output: 'hello-tool' }
+      return {
+        title: 'printf hello',
+        status: 'completed',
+        output: 'Command exited with code 0.\n\nCommand output:\nhello-tool',
+        durationSeconds: 1.3,
+        rawInput: { CommandLine: 'printf hello' },
+      }
     },
   }
   const tool = createAgyProgressTool(adapter)
   const args = { callId: 's2', title: 'printf hello', kind: 'execute', rawInputText: '{"CommandLine":"printf hello"}' }
   const value = await tool.execute(args, { agent: { session: { id: 'child-6' } }, signal: new AbortController().signal })
-  assert.deepEqual(value, {
-    callId: 's2',
-    title: 'printf hello',
-    status: 'completed',
-    outputText: 'hello-tool',
+  assert.equal(value.callId, 's2')
+  assert.equal(value.status, 'completed')
+  assert.equal(value.exitCode, 0)
+  assert.equal(value.durationSeconds, 1.3)
+  assert.match(value.outputText, /hello-tool/u)
+  assert.deepEqual(tool.output.presentationMeta(args, value), {
+    kind: 'execute',
+    exitCode: 0,
+    durationSeconds: 1.3,
   })
   assert.deepEqual(tool.presentCall(args), { card: 'terminal', title: 'printf hello' })
-  assert.deepEqual(tool.presentResult(args, { content: [{ type: 'text', text: 'hello-tool' }] }), {
-    card: 'terminal', title: 'printf hello', output: 'hello-tool',
+  assert.deepEqual(tool.presentResult(args, { content: [{ type: 'text', text: value.outputText }] }), {
+    card: 'terminal', title: 'printf hello', output: value.outputText,
   })
-  assert.deepEqual(tool.output.render(args, value), [{ type: 'text', text: 'hello-tool' }])
+  assert.deepEqual(tool.output.render(args, value), [{ type: 'text', text: value.outputText }])
   assert.equal(callResultText({ status: 'failed', error: 'denied' }), 'denied')
   assert.equal(callResultText({ status: 'completed' }), 'Antigravity tool completed.')
 })

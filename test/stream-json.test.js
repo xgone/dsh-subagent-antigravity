@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   PROGRESS_TOOL_NAME,
+  parseExitCode,
+  toolPath,
   STREAM_MODEL,
   STREAM_PROVIDER,
   buildStreamArgv,
@@ -80,6 +82,20 @@ test('tool output prefers native output then the failure text', () => {
   assert.equal(toolOutputText({}), '')
   assert.equal(toolOutputText(null), '')
   assert.equal(toolOutputText({ output: 'y'.repeat(20_000) }).length, 12_000)
+})
+
+test('command results expose their exit code and acted-on path', () => {
+  assert.equal(parseExitCode('Command exited with code 0.\n\nCommand output:\nok'), 0)
+  assert.equal(parseExitCode('Command exited with code 2.'), 2)
+  assert.equal(parseExitCode('exit code: 127'), 127)
+  assert.equal(parseExitCode('no code here'), undefined)
+  assert.equal(parseExitCode(undefined), undefined)
+
+  assert.equal(toolPath({ Path: '/tmp/a.txt' }), '/tmp/a.txt')
+  assert.equal(toolPath({ FilePath: '/w/b.ts' }), '/w/b.ts')
+  assert.equal(toolPath({ Path: '/tmp/a.txt', FilePath: '/w/b.ts' }), '/tmp/a.txt')
+  assert.equal(toolPath({ CommandLine: 'ls' }), undefined)
+  assert.equal(toolPath(null), undefined)
 })
 
 test('native usage maps onto disjoint DSH token accounting', () => {

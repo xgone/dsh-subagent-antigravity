@@ -2,9 +2,9 @@
 
 用户指南见 [README](README.md)；实现细节见 [docs/implementation.md](docs/implementation.md)；已实测的内容见 [docs/verification.md](docs/verification.md)。版本号遵循语义化版本，每条只记录对使用者可见的变化。
 
-## 未发布
+## 0.2.3 (2026-11-27)
 
-- 文档：README 的「Agy 账号额度」压缩为简述，并新增「工作原理与账号风险」一节，明确本插件是对官方 `agy` CLI 的薄封装，同时提示自动化驱动 CLI 可能带来的限流/封号风险。
+- 文档：README 的「Agy 账号额度」压缩为简述，并新增「工作原理与账号风险」一节，明确本插件是对官方 `agy` CLI 的薄封装，同时提示自动化驱动 CLI 可能带来的限流/封号风险。仅文档变更，无代码改动。
 
 ## 0.2.2 (2026-11-27)
 

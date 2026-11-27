@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
         quotaNextReset: 'Next reset {time}',
         quotaRemaining: '{window} {percent}% left',
         quotaShort: '{window} {percent}%',
+        quotaMobile: 'Agy·{percent}%',
         quotaReset: 'resets {time}',
         quotaLastUpdated: 'Updated {time}',
         quotaStale: 'stale',
@@ -72,6 +73,7 @@ window.__ModuleLoader__.load({
         quotaNextReset: '下次重置 {time}',
         quotaRemaining: '{window} 剩余 {percent}%',
         quotaShort: '{window} {percent}%',
+        quotaMobile: 'Agy·{percent}%',
         quotaReset: '重置于 {time}',
         quotaLastUpdated: '更新于 {time}',
         quotaStale: '缓存数据',
@@ -273,15 +275,12 @@ window.__ModuleLoader__.load({
     }
 
     function quotaPresentation(snapshot, t) {
-      const empty = (status, reason) => ({
-        text: status === 'loading'
+      const empty = (status, reason) => {
+        const text = status === 'loading'
           ? t('quotaLoading')
-          : reason === 'auth' ? t('quotaSignIn') : t('quotaUnavailable'),
-        status,
-        low: false,
-        rows: [],
-        nextReset: null,
-      })
+          : reason === 'auth' ? t('quotaSignIn') : t('quotaUnavailable')
+        return { text, mobileText: text, status, low: false, rows: [], nextReset: null }
+      }
       if (snapshot === undefined) return empty('loading')
       if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) {
         return empty('unavailable', snapshot.reason)
@@ -321,8 +320,12 @@ window.__ModuleLoader__.load({
           && Number.isFinite(Date.parse(value))
           && Date.parse(value) > Date.now())
         .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null
+      // Narrow viewports have no room for per-window labels; show the tightest
+      // remaining percentage only, with the full reading kept for the panel.
+      const worstPercent = Math.round(unique[0].bucket.remainingFraction * 100)
       return {
         text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
+        mobileText: t('quotaMobile', { percent: worstPercent }),
         status: snapshot.status === 'stale' ? 'stale' : 'ready',
         low: unique[0].bucket.remainingFraction <= 0.1,
         rows,
@@ -363,9 +366,34 @@ window.__ModuleLoader__.load({
         }, t('quotaReset', { time: row.reset })))
     }
 
+    /** Phones and other narrow surfaces get a one-number quota reading. */
+    const NARROW_QUERY = '(max-width: 480px)'
+
+    function useNarrowViewport() {
+      const [narrow, setNarrow] = React.useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+          ? window.matchMedia(NARROW_QUERY).matches
+          : false
+      ))
+      React.useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+        const query = window.matchMedia(NARROW_QUERY)
+        const onChange = () => { setNarrow(query.matches) }
+        setNarrow(query.matches)
+        if (typeof query.addEventListener === 'function') {
+          query.addEventListener('change', onChange)
+          return () => { query.removeEventListener('change', onChange) }
+        }
+        query.addListener(onChange)
+        return () => { query.removeListener(onChange) }
+      }, [])
+      return narrow
+    }
+
     function AgyQuotaDock({ t }) {
       const [snapshot, setSnapshot] = React.useState(undefined)
       const [open, setOpen] = React.useState(false)
+      const narrow = useNarrowViewport()
       const [pos, setPos] = React.useState(null)
       const anchorRef = React.useRef(null)
       const panelRef = React.useRef(null)
@@ -460,6 +488,7 @@ window.__ModuleLoader__.load({
         type: 'button',
         'data-agy-quota': view.status,
         'aria-label': view.text,
+        title: narrow ? view.text : undefined,
         'aria-haspopup': 'dialog',
         'aria-expanded': open,
         onClick: toggle,
@@ -483,7 +512,7 @@ window.__ModuleLoader__.load({
           whiteSpace: 'nowrap',
           cursor: 'pointer',
         },
-      }, view.text)
+      }, narrow ? view.mobileText : view.text)
 
       const panel = open && pos !== null && rowsLength > 0
         ? createPortal(h('div', {

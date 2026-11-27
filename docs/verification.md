@@ -122,6 +122,19 @@ because the published record is engineering evidence, not a session transcript.
   already exited, so this exercised the `--conversation` resume path. The child's
   Trajectory tab showed both turns and all four steps.
 
+## Narrow-viewport quota reading
+
+- The composer dock is shared by desktop and phone layouts. With the full
+  per-window reading the pill competed with the host's own truncated stats at
+  390 px.
+- Fix: a `matchMedia('(max-width: 480px)')` listener switches the pill to one
+  tightest-remaining value (`Agy·99%`); the full reading stays in `aria-label`,
+  the hover title and the panel.
+- Verified under a 390×844 mobile emulation: pill text `Agy·99%`, full
+  `aria-label` retained, panel opened at width 240 anchored above the pill
+  inside the viewport; at 1280 px the pill still reads
+  `Agy 额度 周 99% · 5 小时 100%`.
+
 ## Quota probe must never open a login window
 
 - Reported: with `agy` signed out, the composer quota probe repeatedly opened

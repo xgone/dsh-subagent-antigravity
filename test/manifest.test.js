@@ -55,6 +55,10 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /name: 'tool\.call\.toolview'/u)
   assert.match(clientSource, /key: 'agy_progress'/u)
   assert.match(clientSource, /quotaSignIn/u)
+  // Narrow viewports collapse the quota reading to one tight percentage.
+  assert.match(clientSource, /quotaMobile: 'Agy·\{percent\}%'/u)
+  assert.match(clientSource, /NARROW_QUERY = '\(max-width: 480px\)'/u)
+  assert.match(clientSource, /window\.matchMedia\(NARROW_QUERY\)/u)
 })
 
 test('bundle patch pins the child Agent route to the CLI adapter', () => {

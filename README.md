@@ -23,7 +23,13 @@ Antigravity keeps its own login and settings. This plugin never stores credentia
 
 ## Agy account quota
 
-When a DSH conversation is open, the composer footer shows a compact Agy account quota reading at the right of the context-usage reading. On narrow screens (under 480 px, i.e. phones) it collapses to a single tightest value such as `Agy·99%`; the full per-window detail stays in the panel. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` (about ten seconds per probe), keeps the last reading in a small durable cache, and the browser polls every five minutes only while the page is visible. After a Host restart the pill shows the previous reading marked stale and refreshes in the background. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable the pill reports that quota is unavailable. When the CLI is signed out the pill says you need to sign in from a terminal, and the background probe never opens a browser window — its process runs with browser openers neutralized, and a signed-out result is cached for ten minutes instead of being retried every minute.
+While a DSH conversation is open, the composer footer shows a compact Agy quota reading — the tightest remaining window, e.g. `Agy·99%`. Click or tap it for the per-window bars, next reset and last refresh. The reading comes from the local CLI's own `/usage` command (no Google API is called by this plugin), is cached, and switching conversations never re-queries it.
+
+## How it works, and account risk
+
+This plugin is a **thin wrapper around the official `agy` CLI**. DSH owns the child Session and delegates to it; every model request, tool execution and login stays inside the Antigravity CLI you already installed and signed in. The plugin does not reverse-engineer a protocol, does not store credentials, and does not call Google APIs directly.
+
+> **Account risk.** Scripting or automating a vendor CLI is still subject to the Antigravity / Google terms of service. Using this plugin may in principle lead to rate limiting, feature restrictions or **account suspension**. You use it at your own risk: prefer normal usage volume, consider a dedicated account, and stop using it if that risk is not acceptable to you.
 
 ## Install
 

@@ -20,7 +20,8 @@
   - 空白 `SUCCESS` 响应映射为 error（`AGY_INVALID`），符合既有 `invalid-result` 契约。
   - 宽限值增加 schema/表单上限与使用点钳位；`link-dev-deps` 补 `dsh-llm`、`dsh-storage-domain`。
   - 文档改为「单 Profile 单实例；换模型改配置项即可」。
-- `npm test` 82 项。
+- **额度读取的耐久缓存与低频轮询**：成功快照写入新的 `xgone_antigravity_quota` 存储域；Host 重启后先返回上次读数（标记 stale / 「缓存数据」）并同时后台探测，客户端 15 秒后补一次读取拿到新值。前端轮询从 60 秒改为 **5 分钟**，且**只在页面可见时**轮询（切走/最小化停止，回到页面立即刷新）。
+- `npm test` 84 项。
 
 ## 0.2.1 (2026-11-27)
 

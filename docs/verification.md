@@ -192,6 +192,24 @@ dangerously-skip-permissions`), served on its own port, driven through the Web U
   「处理失败 / 本轮运行失败 / AGY_ERROR」 in the child transcript, and the
   progress row showed the Chinese labels (`运行中`, `展开输出`).
 
+## Quota cache and polling
+
+- Measured a real probe: `agy --print /usage` takes ~10.9 s; the route itself is
+  3–5 ms when served from the in-memory cache (60 s TTL), and ~13 s cold.
+- Switching sessions triggers no quota request at all: the dock component mounts
+  once per page load, so its `useEffect` fetch and the interval survive session
+  switches.
+- New: a fresh reading is persisted to the `xgone_antigravity_quota` domain.
+  Measured after a Host restart: the first route read answered in **14 ms** with
+  `status: stale` and the previous `fetchedAt`; a standalone harness against the
+  real CLI showed the restored read at **4 ms**, the background probe exiting `0`
+  ~11 s later, and the next read at **0 ms** returning `ready` with the new
+  `fetchedAt` and `persisted: 1`.
+- Polling is now five minutes and only while the page is visible. Verified by
+  overriding `document.visibilityState`: while hidden the dock issued **zero**
+  `agy-quota` requests; dispatching `visibilitychange` back to `visible` issued
+  two (one per live dock mount) that the Host coalesced into a single probe.
+
 ## What this record does not claim
 
 - It does not benchmark Antigravity model quality or compare models.

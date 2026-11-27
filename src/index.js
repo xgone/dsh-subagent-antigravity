@@ -29,6 +29,7 @@ import { createAgyQuotaReader } from './agy-quota.js'
 import { AntigravityStreamLlmAdapter } from './adapter.js'
 import { STREAM_MODEL, STREAM_PROVIDER } from './stream-json.js'
 import { STREAM_SESSION_DOMAIN_SPEC } from './session-domain.js'
+import { QUOTA_DOMAIN_SPEC } from './quota-domain.js'
 import { agyProgressToolActivation, createAgyProgressTool } from './progress-tool.js'
 
 export const name = 'subagent-antigravity'
@@ -59,13 +60,22 @@ function antigravityStartupFailure(cause) {
   })
 }
 
-function installAgyQuotaRoute(ctx, config) {
+/**
+ * @param {import('@deepseek-ai/cordis').Context} ctx
+ * @param {object} config - resolved provider config.
+ * @param {object} [storage] - durable snapshot cache.
+ * @param {object} [storage.seed] - last persisted snapshot from a previous Host run.
+ * @param {(snapshot: object) => void} [storage.persist] - write a fresh reading back.
+ */
+function installAgyQuotaRoute(ctx, config, storage) {
   const quotaReader = createAgyQuotaReader({
     subprocess: ctx.subprocess,
     // Live accessors: a command-path or env edit applies to the next probe.
     command: () => volatileValue(config.command),
     env: () => volatileValue(config.env) ?? {},
     cwd: process.cwd(),
+    seed: storage?.seed,
+    persist: storage?.persist,
   })
   ctx.effect(() => async () => { await quotaReader.dispose() }, 'subagent-antigravity.agy-quota-reader')
   ctx.inject(['connection'], (connectionCtx) => {
@@ -202,7 +212,25 @@ export async function apply(ctx, config) {
   if (disposeGrace > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
-  installAgyQuotaRoute(ctx, resolved)
+  const quotaDomain = await ctx.storageDomain.open(QUOTA_DOMAIN_SPEC)
+  ctx.effect(() => () => quotaDomain.close(), 'subagent-antigravity.agy-quota-domain')
+  const quotaTable = quotaDomain.table('snapshot')
+  const quotaRecord = quotaTable.get('last')
+  let quotaSeed
+  if (typeof quotaRecord?.json === 'string') {
+    try {
+      const parsed = JSON.parse(quotaRecord.json)
+      if (parsed?.status === 'ready' && Array.isArray(parsed.groups)) quotaSeed = parsed
+    } catch {
+      // A corrupt cache is ignored; the reader simply probes the CLI.
+    }
+  }
+  installAgyQuotaRoute(ctx, resolved, {
+    seed: quotaSeed,
+    persist: (snapshot) => {
+      void Promise.resolve(quotaTable.put('last', { json: JSON.stringify(snapshot) })).catch(() => {})
+    },
+  })
 
   const streamSessionDomain = await ctx.storageDomain.open(STREAM_SESSION_DOMAIN_SPEC)
   ctx.effect(() => () => streamSessionDomain.close(), 'subagent-antigravity.stream-session-domain')

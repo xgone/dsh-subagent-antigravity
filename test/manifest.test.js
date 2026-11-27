@@ -7,6 +7,7 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 const bundlePatch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const clientSource = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 const indexSource = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8')
+const quotaDomainSource = readFileSync(new URL('../src/quota-domain.js', import.meta.url), 'utf8')
 const readmeEn = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
 const readmeZh = readFileSync(new URL('../README.zh.md', import.meta.url), 'utf8')
 const linkDevDepsSource = readFileSync(new URL('../scripts/link-dev-deps.mjs', import.meta.url), 'utf8')
@@ -69,6 +70,10 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /'disposeEofGraceMs'|'disposeGraceMs'/u)
   // Narrow viewports collapse the quota reading to one tight percentage.
   assert.match(clientSource, /quotaMobile: 'Agy·\{percent\}%'/u)
+  // Slow remote fact: poll rarely, only while visible, and revalidate a restored snapshot once.
+  assert.match(clientSource, /AGY_QUOTA_REFRESH_MS = 5 \* 60_000/u)
+  assert.match(clientSource, /visibilitychange/u)
+  assert.match(clientSource, /AGY_QUOTA_REVALIDATE_MS/u)
   assert.match(clientSource, /NARROW_QUERY = '\(max-width: 480px\)'/u)
   assert.match(clientSource, /window\.matchMedia\(NARROW_QUERY\)/u)
 })
@@ -87,6 +92,13 @@ test('every form-editable Config field is volatile', () => {
   ]) {
     assert.ok(indexSource.includes(field), `missing volatile declaration: ${field}`)
   }
+})
+
+test('quota snapshots persist and restore through the durable domain', () => {
+  assert.match(quotaDomainSource, /name: 'xgone_antigravity_quota'/u)
+  assert.match(indexSource, /QUOTA_DOMAIN_SPEC/u)
+  assert.match(indexSource, /seed: quotaSeed/u)
+  assert.match(indexSource, /quotaTable\.put\('last'/u)
 })
 
 test('bundle patch pins the child Agent route to the CLI adapter', () => {

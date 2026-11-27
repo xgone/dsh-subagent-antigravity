@@ -523,7 +523,11 @@ window.__ModuleLoader__.load({
     }
 
     const AGY_QUOTA_ROUTE = 'api/xgone/agy-quota'
-    const AGY_QUOTA_REFRESH_MS = 60_000
+    // A quota reading is a slow, remote fact: poll every five minutes, only
+    // while the page is visible, and stop entirely when it is hidden.
+    const AGY_QUOTA_REFRESH_MS = 5 * 60_000
+    /** One follow-up read after a restored (stale) snapshot so the background probe lands. */
+    const AGY_QUOTA_REVALIDATE_MS = 15_000
 
     function quotaWindowLabel(bucket, t) {
       const key = `${bucket.window ?? ''} ${bucket.name ?? ''}`.toLowerCase()
@@ -674,8 +678,10 @@ window.__ModuleLoader__.load({
         let disposed = false
         let inFlight = false
         let controller
+        let revalidate
         const refresh = async () => {
           if (disposed || inFlight) return
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
           inFlight = true
           const current = new AbortController()
           controller = current
@@ -688,8 +694,17 @@ window.__ModuleLoader__.load({
             })
             if (!response.ok) throw new Error(`quota route returned ${response.status}`)
             const value = await response.json()
-            if (!disposed && ['ready', 'stale', 'unavailable'].includes(value?.status)) setSnapshot(value)
-            else if (!disposed) setSnapshot({ status: 'unavailable' })
+            if (!disposed && ['ready', 'stale', 'unavailable'].includes(value?.status)) {
+              setSnapshot(value)
+              // A restored disk snapshot answers immediately; one delayed read
+              // picks up the fresh probe that started behind it.
+              if (value.status === 'stale' && revalidate === undefined) {
+                revalidate = setTimeout(() => {
+                  revalidate = undefined
+                  void refresh()
+                }, AGY_QUOTA_REVALIDATE_MS)
+              }
+            } else if (!disposed) setSnapshot({ status: 'unavailable' })
           } catch (error) {
             if (!disposed && error?.name !== 'AbortError') setSnapshot({ status: 'unavailable' })
           } finally {
@@ -697,11 +712,17 @@ window.__ModuleLoader__.load({
             if (controller === current) controller = undefined
           }
         }
+        const onVisibilityChange = () => {
+          if (document.visibilityState === 'visible') void refresh()
+        }
         void refresh()
         const interval = setInterval(() => { void refresh() }, AGY_QUOTA_REFRESH_MS)
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
         return () => {
           disposed = true
           clearInterval(interval)
+          if (revalidate !== undefined) clearTimeout(revalidate)
+          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
           controller?.abort()
         }
       }, [])

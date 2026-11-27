@@ -204,6 +204,8 @@ async function runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signa
  * @param {number} [options.refreshMs] - successful result cache lifetime.
  * @param {number} [options.failureRefreshMs] - unavailable result cache lifetime.
  * @param {number} [options.timeoutMs] - hard process query bound.
+ * @param {object} [options.seed] - last snapshot persisted before this Host started.
+ * @param {(snapshot: object) => void} [options.persist] - durable sink for a fresh ready snapshot.
  * @param {() => number} [options.now] - clock seam for tests.
  */
 export function createAgyQuotaReader({
@@ -214,6 +216,8 @@ export function createAgyQuotaReader({
   refreshMs = DEFAULT_REFRESH_MS,
   failureRefreshMs = FAILURE_REFRESH_MS,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  seed,
+  persist,
   now = Date.now,
 }) {
   if (subprocess === null || typeof subprocess?.resolveExecutable !== 'function' || typeof subprocess?.spawn !== 'function') {
@@ -231,6 +235,22 @@ export function createAgyQuotaReader({
   let lastGood
   let inFlight
   let disposed = false
+  // A snapshot restored from disk is returned immediately (marked stale) while a
+  // fresh probe runs in the background, so a Host restart never blocks the pill.
+  let pendingRevalidate = seed !== undefined && seed?.status === 'ready'
+  if (pendingRevalidate) {
+    cached = { ...seed, status: 'stale' }
+    lastGood = seed
+  }
+
+  function publish(snapshot) {
+    if (persist === undefined) return
+    try {
+      persist(snapshot)
+    } catch {
+      // A durable cache is an optimization; a failed write never changes a reading.
+    }
+  }
 
   function beginQuery() {
     const controller = new AbortController()
@@ -256,6 +276,8 @@ export function createAgyQuotaReader({
           lastGood = snapshot
           cached = snapshot
           cacheUntil = now() + refreshMs
+          pendingRevalidate = false
+          publish(snapshot)
           return snapshot
         }
         cached = lastGood === undefined
@@ -279,6 +301,12 @@ export function createAgyQuotaReader({
     if (disposed) return unavailable('unavailable', now)
     signal?.throwIfAborted()
     if (cached !== undefined && cacheUntil > now()) return cached
+    if (pendingRevalidate && cached !== undefined) {
+      // Revalidate once in the background; the caller gets the restored reading.
+      pendingRevalidate = false
+      void (inFlight ?? beginQuery()).promise.catch(() => {})
+      return cached
+    }
     const flight = inFlight ?? beginQuery()
     flight.readers += 1
     try {

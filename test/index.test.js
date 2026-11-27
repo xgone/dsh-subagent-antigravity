@@ -172,7 +172,7 @@ test('apply registers a continuable provider, the CLI LLM route and the progress
 
   assert.equal(adapterRegistrations.length, 1)
   assert.deepEqual(adapterRegistrations[0].providers, ['agy-stream'])
-  assert.equal(domainSpecs[0].name, 'xgone_antigravity_stream_sessions')
+  assert.deepEqual(domainSpecs.map(spec => spec.name), ['xgone_antigravity_quota', 'xgone_antigravity_stream_sessions'])
   assert.equal(toolRegistrations.length, 1)
   assert.equal(toolRegistrations[0].tool.name, 'agy_progress')
   assert.equal(toolRegistrations[0].options.when({ modelSelection: { provider: 'agy-stream' } }), true)

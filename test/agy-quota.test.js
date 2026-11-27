@@ -70,6 +70,57 @@ test('a signed-out CLI is reported as an auth failure, not a generic CLI error',
   await byStdout.dispose()
 })
 
+test('a persisted snapshot answers immediately and revalidates in the background', async () => {
+  const seed = {
+    status: 'ready',
+    fetchedAt: '2026-11-27T00:00:00.000Z',
+    groups: [{ name: 'Gemini Models', buckets: [{ name: 'Weekly', window: 'week', remainingFraction: 0.9, resetTime: '2026-12-01T00:00:00.000Z' }] }],
+  }
+  let persistCount = 0
+  let release
+  const subprocess = fakeSubprocess({
+    onSpawn(_spec, index) {
+      if (index === 0) release = undefined
+    },
+  })
+  const spawns = []
+  const slow = {
+    async resolveExecutable() { return '/resolved/agy' },
+    spawn(spec) {
+      spawns.push(spec)
+      return {
+        done: new Promise((resolve) => { release = () => resolve({ exitCode: 0, signal: null }) }),
+        collected: {
+          stdout: { readFrom: () => ({ text: usageOutput, nextOffset: 0, lossy: false }) },
+          stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+        },
+        terminate() {},
+        async waitForExit() { return true },
+      }
+    },
+  }
+  const reader = createAgyQuotaReader({
+    subprocess: slow,
+    command: 'agy',
+    env: {},
+    cwd: '/workspace',
+    seed,
+    persist: () => { persistCount += 1 },
+  })
+  const restored = await reader.read()
+  assert.equal(restored.status, 'stale')
+  assert.equal(restored.groups[0].buckets[0].remainingFraction, 0.9)
+  assert.equal(spawns.length, 1)
+  assert.equal(persistCount, 0)
+  release()
+  await new Promise(resolve => setImmediate(resolve))
+  const fresh = await reader.read()
+  assert.equal(fresh.status, 'ready')
+  assert.equal(persistCount, 1)
+  assert.equal(subprocess.specs.length, 0)
+  await reader.dispose()
+})
+
 test('the probe process cannot launch a desktop browser opener', async () => {
   if (process.platform === 'win32') return
   let probePath

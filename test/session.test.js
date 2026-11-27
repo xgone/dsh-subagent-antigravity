@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PassThrough, Writable } from 'node:stream'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { StreamJsonChildSession } from '../src/session.js'
 
 const INIT = { event: 'init', conversation_id: 'conv-1', init: { cwd: '/tmp', permission_mode: 'default', tools: [] } }
@@ -88,8 +89,8 @@ function makeSession(options = {}) {
   const resolvedExecutables = []
   const ctx = {
     subprocess: {
-      async resolveExecutable(command, env) {
-        resolvedExecutables.push({ command, env })
+      async resolveExecutable(command, env, signal) {
+        resolvedExecutables.push({ command, env, signal })
         return command.startsWith('/') ? command : `/fake/${command}`
       },
       spawn(spec) {
@@ -183,6 +184,7 @@ test('live Config accessors reach the spawn as current values', async () => {
   assert.deepEqual(resolvedExecutables[0], {
     command: '/opt/agy/bin/agy',
     env: { AGY_CUSTOM: '1' },
+    signal: undefined,
   })
   assert.equal(spawns[0].argv[0], '/opt/agy/bin/agy')
   assert.deepEqual(spawns[0].env, { AGY_CUSTOM: '1' })
@@ -206,12 +208,23 @@ test('a persisted child reopens the same conversation instead of replaying the t
   await session.dispose()
 })
 
-test('an interrupted child turn fails closed instead of rerunning it', async () => {
+test('an interrupted child turn can reopen with --conversation, rejects replaying the interrupted id, and accepts a new message', async () => {
   const { session, spawns } = makeSession({
-    records: { 'child-1': { conversationId: 'conv-x', promptInFlight: true } },
+    records: { 'child-1': { conversationId: 'conv-x', lastDshMessageId: 'msg-1', promptInFlight: true } },
+    onUser: (_message, { emit }) => {
+      emit({ event: 'result', result: { status: 'SUCCESS', response: 'continued' } })
+    },
   })
-  await assert.rejects(() => session.open(), /cannot safely replay/)
-  assert.equal(spawns.length, 0)
+  await session.open()
+  assert.equal(spawns.length, 1)
+  assert.deepEqual(spawns[0].argv.slice(-2), ['--conversation', 'conv-x'])
+  await assert.rejects(() => session.startPrompt({ id: 'msg-1', text: 'replay' }), /cannot safely replay/)
+  await session.startPrompt({ id: 'msg-2', text: 'continue' })
+  const end = await nextEvent(session)
+  assert.equal(end.kind, 'prompt-end')
+  assert.equal(end.response, 'continued')
+  assert.deepEqual(end.finish, { kind: 'stop' })
+  await session.dispose()
 })
 
 test('assistant deltas stream in order and the result settles the turn with usage', async () => {
@@ -374,4 +387,229 @@ test('cancellation disposes the process and settles pending tool rows', async ()
   assert.equal(session.disposed, true)
   await session.dispose()
   assert.equal(session.process.stdin.writableEnded, true)
+})
+
+test('handleResult leaves promptEndConsumed false until the consumer marks it', async () => {
+  const { session } = makeSession({
+    onUser: (_message, { emit }) => {
+      emit({ event: 'result', result: { status: 'SUCCESS', response: 'done' } })
+    },
+  })
+  await session.open()
+  await session.startPrompt({ id: 'msg-1', text: 'work' })
+  const end = await nextEvent(session)
+  assert.equal(end.kind, 'prompt-end')
+  assert.equal(session.promptActive, false)
+  assert.equal(session.promptEndConsumed, false)
+  session.markPromptEndConsumed()
+  assert.equal(session.promptEndConsumed, true)
+  await session.dispose()
+})
+
+test('cancelled turn resets promptInFlight, resumes with --conversation on a new session, blocks msg-1 replay and allows msg-2', async () => {
+  const sharedTable = makeTable()
+  const spawns = []
+  const makeCtx = (onUser) => ({
+    subprocess: {
+      async resolveExecutable(command) { return `/fake/${command}` },
+      spawn(spec) {
+        spawns.push(spec)
+        return makeFakeChild({ onUser })
+      },
+    },
+  })
+  const agent = { session: { id: 'child-cancel', header: { cwd: '/workspace' } }, ctx: { effect: () => () => {} } }
+  const config = {
+    command: 'agy',
+    permissionMode: 'default',
+    env: {},
+    disposeGraceMs: 1000,
+    disposeEofGraceMs: 500,
+  }
+
+  const first = new StreamJsonChildSession(makeCtx(() => {}), agent, config, { table: () => sharedTable })
+  await first.open()
+  await first.startPrompt({ id: 'msg-1', text: 'slow task' })
+  // Wait for `init` emitted on first stdin write to be processed.
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sharedTable.get('child-cancel').promptInFlight, true)
+  assert.equal(sharedTable.get('child-cancel').conversationId, 'conv-1')
+  assert.equal(sharedTable.get('child-cancel').lastDshMessageId, 'msg-1')
+
+  await first.cancelPrompt()
+  assert.equal(sharedTable.get('child-cancel').promptInFlight, false)
+  assert.equal(sharedTable.get('child-cancel').conversationId, 'conv-1')
+  assert.equal(sharedTable.get('child-cancel').lastDshMessageId, 'msg-1')
+
+  const second = new StreamJsonChildSession(makeCtx((_message, { emit }) => {
+    emit({ event: 'result', result: { status: 'SUCCESS', response: 'recovered' } })
+  }), agent, config, { table: () => sharedTable })
+  await second.open()
+  assert.deepEqual(spawns[1].argv.slice(-2), ['--conversation', 'conv-1'])
+  await assert.rejects(() => second.startPrompt({ id: 'msg-1', text: 'replay' }), /cannot safely replay/)
+  await second.startPrompt({ id: 'msg-2', text: 'next task' })
+  const end = await nextEvent(second)
+  assert.equal(end.kind, 'prompt-end')
+  assert.equal(end.response, 'recovered')
+  assert.deepEqual(end.finish, { kind: 'stop' })
+  await second.dispose()
+})
+
+test('waitForToolCall rejects on abort and awaits process disposal quiescence', async () => {
+  let exitFinished = false
+  const table = makeTable()
+  const ctx = {
+    subprocess: {
+      async resolveExecutable(command) { return `/fake/${command}` },
+      spawn() {
+        const stdout = new PassThrough()
+        const stderr = new PassThrough()
+        let resolveDone
+        const done = new Promise((resolve) => { resolveDone = resolve })
+        const stdin = new Writable({
+          write(chunk, _encoding, callback) {
+            for (const line of chunk.toString('utf8').split('\n').filter(Boolean)) {
+              JSON.parse(line)
+              stdout.write(`${JSON.stringify(INIT)}\n`)
+              stdout.write(`${JSON.stringify({
+                event: 'step_update',
+                step_update: {
+                  step_index: 1, state: 'ACTIVE', step_type: 'tool', tool_name: 'run_command',
+                  tool_info: { name: 'run_command', parameters: { CommandLine: 'sleep 100' } },
+                },
+              })}\n`)
+            }
+            callback()
+          },
+        })
+        stdin.on('finish', () => {
+          setTimeout(() => {
+            exitFinished = true
+            stdout.end()
+            resolveDone({ exitCode: 0, signal: null })
+          }, 25)
+        })
+        return {
+          stdin,
+          stdout,
+          stderr,
+          done,
+          terminate() {
+            exitFinished = true
+            resolveDone({ exitCode: null, signal: 'SIGTERM' })
+          },
+          async waitForExit() {
+            await done
+            return true
+          },
+        }
+      },
+    },
+  }
+  const agent = { session: { id: 'child-abort', header: { cwd: '/workspace' } }, ctx: { effect: () => () => {} } }
+  const session = new StreamJsonChildSession(ctx, agent, {
+    command: 'agy',
+    permissionMode: 'default',
+    env: {},
+    disposeGraceMs: 1000,
+    disposeEofGraceMs: 500,
+  }, { table: () => table })
+
+  await session.open()
+  await session.startPrompt({ id: 'msg-1', text: 'run long tool' })
+  assert.equal((await nextEvent(session)).kind, 'tool-call')
+
+  const controller = new AbortController()
+  const waiting = session.waitForToolCall('s1', controller.signal)
+  controller.abort(new Error('user aborted tool'))
+  await assert.rejects(() => waiting, /user aborted tool/)
+  assert.equal(session.disposed, true)
+  assert.equal(exitFinished, true)
+})
+
+test('waitForToolCall rejects when signal is already aborted even if tool already settled', async () => {
+  const { session } = makeSession({
+    onUser: (_message, { emit }) => {
+      emit({
+        event: 'step_update',
+        step_update: {
+          step_index: 1, state: 'ACTIVE', step_type: 'tool', tool_name: 'read_file',
+          tool_info: { name: 'read_file', parameters: { Path: '/tmp/a' } },
+        },
+      })
+      emit({
+        event: 'step_update',
+        step_update: {
+          step_index: 1, state: 'DONE', step_type: 'tool', tool_name: 'read_file',
+          tool_info: { name: 'read_file', parameters: { Path: '/tmp/a' }, output: 'ok' },
+        },
+      })
+    },
+  })
+  await session.open()
+  await session.startPrompt({ id: 'msg-1', text: 'read' })
+  assert.equal((await nextEvent(session)).kind, 'tool-call')
+  await new Promise(resolve => setImmediate(resolve))
+  const controller = new AbortController()
+  controller.abort(new Error('already aborted'))
+  await assert.rejects(() => session.waitForToolCall('s1', controller.signal), /already aborted/)
+  assert.equal(session.disposed, true)
+})
+
+test('idle CLI exit sets exited flag without enqueuing a poison process-exit event', async () => {
+  const { session, children } = makeSession({
+    onUser: (_message, { emit }) => {
+      emit({ event: 'result', result: { status: 'SUCCESS', response: 'done' } })
+    },
+  })
+  await session.open()
+  await session.startPrompt({ id: 'msg-1', text: 'work' })
+  const end = await nextEvent(session)
+  assert.equal(end.kind, 'prompt-end')
+  assert.equal(session.exited, false)
+
+  children[0].terminate()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(session.exited, true)
+  assert.equal(session.events.items.length, 0)
+  await session.dispose()
+})
+
+test('blank SUCCESS result with no assistant text maps to an error finish reason', async () => {
+  const { session } = makeSession({
+    onUser: (_message, { emit }) => {
+      emit({ event: 'result', result: { status: 'SUCCESS', response: '   ' } })
+    },
+  })
+  await session.open()
+  await session.startPrompt({ id: 'msg-1', text: 'empty' })
+  const end = await nextEvent(session)
+  assert.equal(end.kind, 'prompt-end')
+  assert.equal(end.finish.kind, 'error')
+  assert.equal(end.finish.failure.code, 'AGY_INVALID')
+  await session.dispose()
+})
+
+test('open forwards signal to resolveExecutable and clamps invalid or excessive grace values', async () => {
+  const controller = new AbortController()
+  const { session, spawns, resolvedExecutables } = makeSession({
+    config: {
+      disposeGraceMs: MAX_TIMER_DELAY_MS + 5000,
+      disposeEofGraceMs: MAX_TIMER_DELAY_MS + 5000,
+    },
+  })
+  await session.open(controller.signal)
+  assert.equal(resolvedExecutables[0].signal, controller.signal)
+  assert.equal(spawns[0].graceMs, MAX_TIMER_DELAY_MS)
+  await session.dispose()
+
+  const fallback = makeSession({
+    config: {
+      disposeGraceMs: 0,
+      disposeEofGraceMs: -10,
+    },
+  })
+  await fallback.session.open()
+  assert.equal(fallback.spawns[0].graceMs, 3000)
+  await fallback.session.dispose()
 })

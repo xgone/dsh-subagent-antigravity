@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { PassThrough, Writable } from 'node:stream'
 import {
   AntigravityStreamLlmAdapter,
   callResultText,
@@ -176,6 +177,8 @@ test('only user-authored and relayed tasks are forwarded to the CLI', () => {
   assert.deepEqual(extractDshUserMessage([task, time]), { id: 'task-1', text: 'Run pwd.' })
   const relay = { id: 'relay-1', role: 'user', source: { kind: 'agent-message', form: 'relay' }, content: [{ type: 'text', text: 'Check the change.' }] }
   assert.deepEqual(extractDshUserMessage([task, relay]), { id: 'relay-1', text: 'Check the change.' })
+  const emptyId = { id: '', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Hello' }] }
+  assert.deepEqual(extractDshUserMessage([emptyId]), { id: 'user-0-5', text: 'Hello' })
   assert.equal(extractDshUserMessage([{ id: 'x', role: 'assistant', content: [] }]), undefined)
 })
 
@@ -203,6 +206,7 @@ test('the progress proxy records the completed CLI tool without executing it aga
   assert.match(value.outputText, /hello-tool/u)
   assert.deepEqual(tool.output.presentationMeta(args, value), {
     kind: 'execute',
+    status: 'completed',
     exitCode: 0,
     durationSeconds: 1.3,
   })
@@ -213,4 +217,228 @@ test('the progress proxy records the completed CLI tool without executing it aga
   assert.deepEqual(tool.output.render(args, value), [{ type: 'text', text: value.outputText }])
   assert.equal(callResultText({ status: 'failed', error: 'denied' }), 'denied')
   assert.equal(callResultText({ status: 'completed' }), 'Antigravity tool completed.')
+})
+
+test('progress proxy projects failure status and full path, and skips exitCode for non-execute tools', async () => {
+  const adapter = {
+    async waitForToolCall(_sessionId, callId) {
+      if (callId === 's-fail') {
+        return {
+          title: 'rm -rf /',
+          kind: 'execute',
+          status: 'failed',
+          error: 'user denied permission',
+          rawInput: { CommandLine: 'rm -rf /' },
+        }
+      }
+      return {
+        title: 'read_file /workspace/notes.txt',
+        kind: 'read',
+        status: 'completed',
+        output: 'log line: Command exited with code 2.',
+        rawInput: { Path: '/workspace/notes.txt', Content: 'x'.repeat(5000) },
+      }
+    },
+  }
+  const tool = createAgyProgressTool(adapter)
+  const failArgs = { callId: 's-fail', title: 'rm -rf /', kind: 'execute', rawInputText: '{}' }
+  const failVal = await tool.execute(failArgs, { agent: { session: { id: 'c1' } }, signal: new AbortController().signal })
+  assert.equal(failVal.status, 'failed')
+  assert.deepEqual(tool.output.presentationMeta(failArgs, failVal), {
+    kind: 'execute',
+    status: 'failed',
+  })
+
+  const readArgs = { callId: 's-read', title: 'read_file /workspace/notes.txt', kind: 'read', rawInputText: '{"Path":"/workspace/notes.txt","Content":"truncated…' }
+  const readVal = await tool.execute(readArgs, { agent: { session: { id: 'c1' } }, signal: new AbortController().signal })
+  assert.equal(readVal.exitCode, undefined)
+  assert.equal(readVal.path, '/workspace/notes.txt')
+  assert.deepEqual(tool.output.presentationMeta(readArgs, readVal), {
+    kind: 'read',
+    status: 'completed',
+    path: '/workspace/notes.txt',
+  })
+})
+
+function makeFakeStreamChild(onUser) {
+  const stdout = new PassThrough()
+  const stderr = new PassThrough()
+  let resolveDone
+  let settled = false
+  const done = new Promise(resolve => { resolveDone = resolve })
+  const settle = (outcome) => {
+    if (settled) return
+    settled = true
+    resolveDone(outcome)
+  }
+  const emit = (event) => { stdout.write(`${JSON.stringify(event)}\n`) }
+  let initSent = false
+  const stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      for (const line of chunk.toString('utf8').split('\n').filter(l => l.trim() !== '')) {
+        const message = JSON.parse(line)
+        if (!initSent) {
+          initSent = true
+          emit({ event: 'init', conversation_id: 'conv-live', init: { cwd: '/workspace', tools: [] } })
+        }
+        onUser(message, { emit, settle })
+      }
+      callback()
+    },
+  })
+  stdin.on('finish', () => {
+    stdout.end()
+    settle({ exitCode: 0, signal: null })
+  })
+  return {
+    stdin,
+    stdout,
+    stderr,
+    done,
+    terminate() { settle({ exitCode: null, signal: 'SIGTERM' }) },
+    async waitForExit() { await done; return true },
+  }
+}
+
+test('real session + adapter delivers final reply when result arrives before the second stream() call', async () => {
+  const records = new Map()
+  const sessionDomain = {
+    table: () => ({
+      get: k => records.get(k),
+      put: async (k, v) => { records.set(k, v) },
+    }),
+  }
+  const agent = { id: 'child-e2e', session: { id: 'child-e2e', header: { cwd: '/workspace' } }, ctx: { effect: () => () => {} } }
+  const ctx = {
+    agents: { get: id => id === agent.id ? agent : undefined },
+    subprocess: {
+      async resolveExecutable(command) { return `/fake/${command}` },
+      spawn() {
+        return makeFakeStreamChild((_message, { emit }) => {
+          // Tool starts, completes, assistant replies, and result arrives all before stream() is called a second time.
+          emit({
+            event: 'step_update',
+            step_update: {
+              step_index: 1, state: 'ACTIVE', step_type: 'tool', tool_name: 'run_command',
+              tool_info: { name: 'run_command', parameters: { CommandLine: 'echo hi' } },
+            },
+          })
+          emit({
+            event: 'step_update',
+            step_update: {
+              step_index: 1, state: 'DONE', step_type: 'tool', tool_name: 'run_command',
+              tool_info: { name: 'run_command', parameters: { CommandLine: 'echo hi' }, output: 'Command exited with code 0.\nhi' },
+            },
+          })
+          emit({ event: 'step_update', step_update: { step_index: 2, state: 'DONE', step_type: 'agent_response', text_delta: 'All set.' } })
+          emit({ event: 'result', result: { status: 'SUCCESS', response: 'All set.' } })
+        })
+      },
+    },
+  }
+  const config = { command: 'agy', permissionMode: 'default', env: {}, disposeGraceMs: 1000, disposeEofGraceMs: 500 }
+  const adapter = new AntigravityStreamLlmAdapter(ctx, config, sessionDomain)
+  const tool = createAgyProgressTool(adapter)
+
+  const step1 = await collect(adapter.stream({
+    sessionId: agent.id,
+    messages: [userMessage('run echo', 'msg-1')],
+  }))
+  assert.deepEqual(step1.at(-1).reason, { kind: 'tool-calls' })
+  const toolArgs = JSON.parse(step1.find(c => c.type === 'tool-call-delta').argumentsDelta)
+  const toolResult = await tool.execute(toolArgs, { agent, signal: new AbortController().signal })
+  assert.equal(toolResult.status, 'completed')
+  assert.equal(toolResult.exitCode, 0)
+
+  // Allow any pending microtasks so `result` has definitely been handled before step 2.
+  await new Promise(resolve => setImmediate(resolve))
+
+  const step2 = await collect(adapter.stream({
+    sessionId: agent.id,
+    messages: [userMessage('run echo', 'msg-1')],
+  }))
+  assert.deepEqual(step2.at(-1).reason, { kind: 'stop' })
+  assert.equal(step2.find(c => c.type === 'block-end').block.text, 'All set.')
+
+  // Replaying the same completed turn now fails closed.
+  await assert.rejects(() => collect(adapter.stream({
+    sessionId: agent.id,
+    messages: [userMessage('run echo', 'msg-1')],
+  })), /already completed or failed/)
+  await adapter.disposeAll()
+})
+
+test('idle CLI process exit after turn 1 triggers automatic respawn with --conversation on turn 2', async () => {
+  const records = new Map()
+  const sessionDomain = {
+    table: () => ({
+      get: k => records.get(k),
+      put: async (k, v) => { records.set(k, v) },
+    }),
+  }
+  const spawns = []
+  const children = []
+  let turn = 0
+  const agent = { id: 'child-respawn', session: { id: 'child-respawn', header: { cwd: '/workspace' } }, ctx: { effect: () => () => {} } }
+  const ctx = {
+    agents: { get: id => id === agent.id ? agent : undefined },
+    subprocess: {
+      async resolveExecutable(command) { return `/fake/${command}` },
+      spawn(spec) {
+        spawns.push(spec)
+        const child = makeFakeStreamChild((_message, { emit }) => {
+          turn += 1
+          emit({ event: 'result', result: { status: 'SUCCESS', response: `reply-${turn}` } })
+        })
+        children.push(child)
+        return child
+      },
+    },
+  }
+  const config = { command: 'agy', permissionMode: 'default', env: {}, disposeGraceMs: 1000, disposeEofGraceMs: 500 }
+  const adapter = new AntigravityStreamLlmAdapter(ctx, config, sessionDomain)
+
+  const turn1 = await collect(adapter.stream({
+    sessionId: agent.id,
+    messages: [userMessage('first', 'msg-1')],
+  }))
+  assert.equal(turn1.find(c => c.type === 'block-end').block.text, 'reply-1')
+  assert.equal(spawns.length, 1)
+
+  // Simulate the CLI process exiting while idle between turns.
+  children[0].terminate()
+  await new Promise(resolve => setImmediate(resolve))
+
+  const turn2 = await collect(adapter.stream({
+    sessionId: agent.id,
+    messages: [userMessage('second', 'msg-2')],
+  }))
+  assert.equal(spawns.length, 2)
+  assert.deepEqual(spawns[1].argv.slice(-2), ['--conversation', 'conv-live'])
+  assert.equal(turn2.find(c => c.type === 'block-end').block.text, 'reply-2')
+  assert.deepEqual(turn2.at(-1).reason, { kind: 'stop' })
+  await adapter.disposeAll()
+})
+
+test('non-stop finish and blank SUCCESS dispose the session instead of keeping it alive', async () => {
+  const agent = { id: 'child-err', session: { id: 'child-err' } }
+  const ctx = { agents: { get: id => id === agent.id ? agent : undefined } }
+  const adapter = new AntigravityStreamLlmAdapter(ctx, {})
+
+  const errState = fakeState([
+    { kind: 'prompt-end', status: 'ERROR', response: '', finish: { kind: 'error', failure: { message: 'boom', code: 'AGY_ERROR' } } },
+  ])
+  adapter.sessions.set(agent.id, errState)
+  const errChunks = await collect(adapter.stream({ sessionId: agent.id, messages: [userMessage('fail')] }))
+  assert.equal(errChunks.at(-1).reason.kind, 'error')
+  assert.equal(errState.cancelled, true)
+
+  const blankState = fakeState([
+    { kind: 'prompt-end', status: 'SUCCESS', response: '   ', finish: { kind: 'stop' } },
+  ])
+  adapter.sessions.set(agent.id, blankState)
+  const blankChunks = await collect(adapter.stream({ sessionId: agent.id, messages: [userMessage('blank')] }))
+  assert.equal(blankChunks.at(-1).reason.kind, 'error')
+  assert.equal(blankChunks.at(-1).reason.failure.code, 'AGY_INVALID')
+  assert.equal(blankState.cancelled, true)
 })

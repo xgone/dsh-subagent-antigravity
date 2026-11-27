@@ -144,6 +144,9 @@ export function buildStreamArgv(executable, config, conversationId) {
   if (config.effort !== undefined) argv.push('--effort', config.effort)
   if (config.agent !== undefined) argv.push('--agent', config.agent)
   if (typeof conversationId === 'string' && conversationId.length > 0) {
+    if (conversationId.startsWith('-') || /[\u0000-\u001f\u007f]/u.test(conversationId)) {
+      throw new Error('subagent-antigravity: invalid conversationId')
+    }
     argv.push('--conversation', conversationId)
   }
   return argv
@@ -212,7 +215,7 @@ export function parseExitCode(outputText) {
   const match = /exited with code (-?\d+)/i.exec(outputText) ?? /exit code[: ]+(-?\d+)/i.exec(outputText)
   if (match === null) return undefined
   const code = Number(match[1])
-  return Number.isInteger(code) ? code : undefined
+  return Number.isSafeInteger(code) ? code : undefined
 }
 
 /**
@@ -259,12 +262,26 @@ export function toTokenUsage(usage) {
  * Map the native terminal `status` onto a DSH stream finish reason. Messages are
  * fixed: a product string never reaches model-visible text.
  * @param {unknown} status - native `result.status`.
+ * @param {{hasAssistantText?: boolean, response?: unknown}} [context] - turn text context for SUCCESS validation.
  * @returns {import('@deepseek-ai/dsh-llm').FinishReason}
  */
-export function streamFinishReason(status) {
+export function streamFinishReason(status, context) {
   switch (status) {
-    case 'SUCCESS':
+    case 'SUCCESS': {
+      if (context !== undefined) {
+        const hasResponse = typeof context.response === 'string' && context.response.trim() !== ''
+        if (!context.hasAssistantText && !hasResponse) {
+          return {
+            kind: 'error',
+            failure: {
+              message: 'Antigravity CLI completed without producing a response',
+              code: 'AGY_INVALID',
+            },
+          }
+        }
+      }
       return { kind: 'stop' }
+    }
     case 'CANCELED':
     case 'INTERRUPTED':
       return {

@@ -49,8 +49,10 @@ export function createAgyProgressTool(adapter) {
       presentationMeta(args, value) {
         return {
           kind: typeof args.kind === 'string' ? args.kind : 'other',
+          ...typeof value.status === 'string' ? { status: value.status } : {},
           ...typeof value.exitCode === 'number' ? { exitCode: value.exitCode } : {},
           ...typeof value.durationSeconds === 'number' ? { durationSeconds: value.durationSeconds } : {},
+          ...typeof value.path === 'string' && value.path.trim() !== '' ? { path: value.path } : {},
         }
       },
     },
@@ -59,7 +61,8 @@ export function createAgyProgressTool(adapter) {
       if (agent === undefined) throw new Error('Antigravity progress bridge requires its child Agent')
       const call = await adapter.waitForToolCall(agent.session.id, args.callId, exec.signal)
       const outputText = callResultText(call)
-      const exitCode = parseExitCode(outputText)
+      const effectiveKind = typeof call.kind === 'string' ? call.kind : args.kind
+      const exitCode = effectiveKind === 'execute' ? parseExitCode(outputText) : undefined
       const path = toolPath(call.rawInput)
       return {
         callId: args.callId,

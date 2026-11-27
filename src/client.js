@@ -96,6 +96,15 @@ window.__ModuleLoader__.load({
         quotaLoading: '正在读取 Agy 额度…',
         quotaUnavailable: 'Agy 额度暂不可用',
         quotaUnavailableHelp: '请检查 Agy CLI 是否已安装并登录。',
+        quotaSignIn: '需在终端登录 agy',
+        toolStatePreparing: '准备中',
+        toolStateRunning: '运行中',
+        toolStateDone: '已完成',
+        toolStateFailed: '失败',
+        toolExpand: '展开输出',
+        toolCollapse: '收起输出',
+        toolArguments: '参数',
+        toolExitCode: '退出码 {code}',
         quotaTitle: 'Agy 账号额度',
         quotaNextReset: '下次重置 {time}',
         quotaRemaining: '{window} 剩余 {percent}%',
@@ -146,6 +155,7 @@ window.__ModuleLoader__.load({
     }
 
     const ADVANCED_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+    const MAX_TIMER_DELAY_MS = 2_147_483_647
 
     const advancedFieldStyle = {
       boxSizing: 'border-box',
@@ -225,7 +235,7 @@ window.__ModuleLoader__.load({
             if (!accepted) {
               setDraft({})
               setAdvancedDraft(undefined)
-              setFeedback('failed')
+              setFeedback('saveFailed')
             } else {
               setFeedback('saved')
             }
@@ -233,7 +243,7 @@ window.__ModuleLoader__.load({
           .catch(() => {
             setDraft({})
             setAdvancedDraft(undefined)
-            setFeedback('failed')
+            setFeedback('saveFailed')
           })
           .finally(() => { setPending(false) })
       }
@@ -306,7 +316,7 @@ window.__ModuleLoader__.load({
             continue
           }
           const value = Number(text)
-          if (!Number.isInteger(value) || value <= 0) {
+          if (!Number.isInteger(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
             setFeedback('invalidGrace')
             return
           }
@@ -461,6 +471,7 @@ window.__ModuleLoader__.load({
             h('input', {
               type: 'number',
               min: 1,
+              max: MAX_TIMER_DELAY_MS,
               step: 1,
               value: graceValue('disposeEofGraceMs'),
               disabled,
@@ -473,6 +484,7 @@ window.__ModuleLoader__.load({
             h('input', {
               type: 'number',
               min: 1,
+              max: MAX_TIMER_DELAY_MS,
               step: 1,
               value: graceValue('disposeGraceMs'),
               disabled,
@@ -500,10 +512,10 @@ window.__ModuleLoader__.load({
       pending
         ? h('p', { role: 'status', style: { margin: 0 } }, t('saving'))
         : feedback === '' ? null : h('p', {
-          role: feedback === 'failed' || feedback === 'invalidGrace' ? 'alert' : 'status',
+          role: feedback === 'saveFailed' || feedback === 'invalidGrace' ? 'alert' : 'status',
           style: {
             margin: 0,
-            color: feedback === 'failed' || feedback === 'invalidGrace'
+            color: feedback === 'saveFailed' || feedback === 'invalidGrace'
               ? 'var(--dsw-alias-state-error-primary)'
               : 'var(--dsw-alias-label-secondary)',
           },
@@ -872,9 +884,10 @@ window.__ModuleLoader__.load({
         ? block.meta
         : undefined
       const kind = meta && typeof meta.kind === 'string' ? meta.kind : agyReadArg(block, 'kind') || 'other'
+      const failed = Boolean(block && block.isError) || meta?.status === 'failed'
       const state = phase === 'preparing' ? 'preparing'
         : phase === 'start' ? 'running'
-          : block && block.isError ? 'failed' : 'done'
+          : failed ? 'failed' : 'done'
       const output = phase === 'result' && block && Array.isArray(block.content)
         ? block.content
           .filter(item => item && item.type === 'text' && typeof item.text === 'string')
@@ -883,11 +896,14 @@ window.__ModuleLoader__.load({
           .trim()
         : ''
       const parameters = agyParseJson(rawInputText)
-      const path = parameters !== null && typeof parameters === 'object'
+      const fallbackPath = parameters !== null && typeof parameters === 'object'
         ? ['Path', 'path', 'file_path', 'FilePath', 'AbsolutePath', 'DirectoryPath', 'TargetFile']
           .map(key => parameters[key])
           .find(value => typeof value === 'string' && value.trim() !== '')
         : undefined
+      const path = meta && typeof meta.path === 'string' && meta.path.trim() !== ''
+        ? meta.path
+        : fallbackPath
       const summary = typeof path === 'string' && typeof cwd === 'string' && cwd !== '' && path.startsWith(cwd)
         ? `.${path.slice(cwd.length) === '' ? '/' : path.slice(cwd.length)}`
         : path

@@ -89,7 +89,7 @@ agy models
 model: claude-sonnet-5-5-high
 ```
 
-模型对整个 Profile 的所有委派生效。DSH 通用的「模型选择」选的是 DSH 自己的模型，不是 Antigravity 的模型标识。如果不同任务要用不同模型，可以按不同 provider 名把本 bundle 挂载两次（各配一行工具和不同的工具名），或修改配置行后重启。
+模型对整个 Profile 的所有委派生效。DSH 通用的「模型选择」选的是 DSH 自己的模型，不是 Antigravity 的模型标识。单个 Profile 只支持一个本插件实例；换模型直接修改配置项，保存即生效、无需重启。
 
 ## 使用
 

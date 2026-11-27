@@ -251,7 +251,7 @@ export function createAgyQuotaReader({
       now,
     })
       .then((snapshot) => {
-        if (signal.aborted) return snapshot
+        if (lifetime.signal.aborted || controller.signal.aborted) return snapshot
         if (snapshot.status === 'ready') {
           lastGood = snapshot
           cached = snapshot

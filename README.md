@@ -89,7 +89,7 @@ agy models
 model: claude-sonnet-5-5-high
 ```
 
-The model applies to every delegation from that Profile. DSH's generic "model selection" option is for DSH's own models, not for Antigravity slugs. If you need different tasks on different models, install the bundle twice under different provider names (each with its own row and tool name), or change the row and restart.
+The model applies to every delegation from that Profile. DSH's generic "model selection" option is for DSH's own models, not for Antigravity slugs. A Profile supports only one instance of this plugin; to switch models, edit the `model` setting directly — saving takes effect for the next child session without restarting.
 
 ## Using it
 

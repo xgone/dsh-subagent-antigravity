@@ -131,8 +131,8 @@ export const Config = z.object({
     .default(DEFAULT_ANTIGRAVITY_PERMISSION_MODE)
     .volatile(),
   env: z.dict(z.string()).default({}).volatile(),
-  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS).volatile(),
-  disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS).volatile(),
+  disposeEofGraceMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_DISPOSE_EOF_GRACE_MS).volatile(),
+  disposeGraceMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_DISPOSE_GRACE_MS).volatile(),
   autoDelegate: z.boolean().default(false).volatile(),
 })
 

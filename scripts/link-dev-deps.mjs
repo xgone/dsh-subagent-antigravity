@@ -25,6 +25,8 @@ const PACKAGES = {
   '@deepseek-ai/schemastery': 'vendor/schemastery',
   '@deepseek-ai/dsh-agent': 'packages/core/agent',
   '@deepseek-ai/dsh-tools': 'packages/core/tools',
+  '@deepseek-ai/dsh-llm': 'packages/llm/llm',
+  '@deepseek-ai/dsh-storage-domain': 'packages/storage/storage-domain',
   '@deepseek-ai/dsh-subagent': 'packages/subagent/subagent',
   '@deepseek-ai/dsh-subprocess': 'packages/subprocess/subprocess',
   '@deepseek-ai/dsh-timeout': 'packages/util/timeout',

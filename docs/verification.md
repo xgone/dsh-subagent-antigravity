@@ -171,6 +171,27 @@ because the published record is engineering evidence, not a session transcript.
   wrote `effort: high` into the profile's `cordis.patch.yml`, and the entry kept
   running (no restart).
 
+## Review fixes: end-to-end smoke (isolated plugin-only profile)
+
+Profile `agy-e2e` (shipped web template + this bundle only, `permissionMode:
+dangerously-skip-permissions`), served on its own port, driven through the Web UI:
+
+- **Fast consecutive tool calls** (the P0 the review found): one delegation ran
+  `printf E2E-A` then `printf E2E-B`. Both steps produced `agy_progress` rows and
+  the final answer arrived — no "already completed" failure.
+- **Resume after an unexpected CLI exit**: the child's `agy` process was killed
+  mid-turn (`SIGTERM`). The parent received a failure notice, then a new message
+  sent into the same child session answered `RESUMED-AFTER-KILL` (turn completed)
+  instead of hitting the permanent lock reported before the fix.
+- **Explicit cancel then continue**: a delegation running `sleep 120` was stopped
+  with the composer's stop control. Result: `turn/end aborted (user)`, the `agy`
+  process exited, the sidecar record for that child read `promptInFlight: false`,
+  and a follow-up message restarted the CLI with
+  `--conversation 9411aa70-…` and answered `RESUMED-AFTER-CANCEL` (`completed`).
+- **Failure rendering**: the aborted/interrupted child turn rendered as
+  「处理失败 / 本轮运行失败 / AGY_ERROR」 in the child transcript, and the
+  progress row showed the Chinese labels (`运行中`, `展开输出`).
+
 ## What this record does not claim
 
 - It does not benchmark Antigravity model quality or compare models.

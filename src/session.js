@@ -16,7 +16,14 @@
  * @module @xgone/dsh-subagent-antigravity/session
  */
 
-import { NdjsonEventFeed, permissionModeValue, volatileValue } from './antigravity.js'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import {
+  DEFAULT_DISPOSE_EOF_GRACE_MS,
+  DEFAULT_DISPOSE_GRACE_MS,
+  NdjsonEventFeed,
+  permissionModeValue,
+  volatileValue,
+} from './antigravity.js'
 import {
   buildStreamArgv,
   conversationIdOf,
@@ -28,6 +35,12 @@ import {
   toolOutputText,
   toolTitle,
 } from './stream-json.js'
+
+function clampGraceMs(value, fallback) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.min(Math.ceil(parsed), MAX_TIMER_DELAY_MS)
+}
 
 function abortError(signal) {
   return signal?.reason instanceof Error ? signal.reason : new Error('Antigravity CLI operation was aborted')
@@ -184,12 +197,16 @@ export class StreamJsonChildSession {
     this.toolCalls = new Map()
     this.promptActive = false
     this.promptEndConsumed = true
+    this.promptPersistedInFlight = false
+    this.turnHasAssistantText = false
+    this.interruptedMessageId = undefined
     this.promptAbortSignal = undefined
     this.promptAbortListener = undefined
     this.promptEpoch = 0
     this.lastPromptMessageId = undefined
     this.lastUsage = undefined
     this.conversationId = undefined
+    this.exited = false
     this.disposed = false
     this.disposePromise = undefined
     /** @type {import('@deepseek-ai/dsh-subprocess').SubprocessHandle | undefined} */
@@ -207,15 +224,15 @@ export class StreamJsonChildSession {
   async open(signal) {
     throwIfAborted(signal)
     const previous = this.sessionDomain.table('sessions').get(this.dshSessionId)
-    if (previous?.promptInFlight === true) {
-      throw new Error('Antigravity CLI cannot safely replay a child turn interrupted before completion')
-    }
     if (typeof previous?.conversationId === 'string') this.conversationId = previous.conversationId
-    if (typeof previous?.lastDshMessageId === 'string') this.lastPromptMessageId = previous.lastDshMessageId
+    if (typeof previous?.lastDshMessageId === 'string') {
+      this.lastPromptMessageId = previous.lastDshMessageId
+      if (previous.promptInFlight === true) this.interruptedMessageId = previous.lastDshMessageId
+    }
     const command = volatileValue(this.config.command)
     const env = volatileValue(this.config.env) ?? {}
     const executable = await awaitWithSignal(
-      this.ctx.subprocess.resolveExecutable(command, env),
+      this.ctx.subprocess.resolveExecutable(command, env, signal),
       signal,
     )
     throwIfAborted(signal)
@@ -233,7 +250,7 @@ export class StreamJsonChildSession {
       ),
       cwd: this.cwd,
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
-      graceMs: volatileValue(this.config.disposeGraceMs),
+      graceMs: clampGraceMs(volatileValue(this.config.disposeGraceMs), DEFAULT_DISPOSE_GRACE_MS),
       env,
     })
     if (this.process.stdin === undefined || this.process.stdout === undefined) {
@@ -253,11 +270,13 @@ export class StreamJsonChildSession {
     // 'error' event; consume it so an EPIPE can never crash the Host process.
     this.process.stdin.on?.('error', () => {})
     void this.process.done.then((outcome) => {
+      this.exited = true
       this.exitDeferred.resolve(outcome)
-      if (!this.disposed) this.events.push({ kind: 'process-exit', outcome })
+      if (!this.disposed && this.promptActive) this.events.push({ kind: 'process-exit', outcome })
     }, () => {
+      this.exited = true
       this.exitDeferred.resolve(undefined)
-      if (!this.disposed) {
+      if (!this.disposed && this.promptActive) {
         this.events.push({ kind: 'error', error: new Error('Antigravity CLI subprocess failed') })
       }
     })
@@ -331,7 +350,10 @@ export class StreamJsonChildSession {
     const state = typeof step.state === 'string' ? step.state : ''
     if (step.step_type === 'agent_response') {
       const delta = typeof step.text_delta === 'string' ? step.text_delta : ''
-      if (delta !== '') this.events.push({ kind: 'assistant-text', text: delta })
+      if (delta !== '') {
+        if (delta.trim() !== '') this.turnHasAssistantText = true
+        this.events.push({ kind: 'assistant-text', text: delta })
+      }
       const usage = toTokenUsage(step.usage)
       if (usage !== undefined) this.lastUsage = usage
       return
@@ -398,22 +420,27 @@ export class StreamJsonChildSession {
     if (conversationId !== undefined) this.conversationId = conversationId
     if (!this.promptActive) return
     this.promptActive = false
-    this.promptEndConsumed = true
     this.clearPromptAbortListener()
     this.promptEpoch += 1
     this.failPendingTools('Antigravity turn ended before the tool completed')
     const status = typeof result.status === 'string' ? result.status : ''
     const response = typeof result.response === 'string' ? result.response : ''
     const usage = toTokenUsage(result.usage) ?? this.lastUsage
+    const finish = streamFinishReason(status, {
+      hasAssistantText: this.turnHasAssistantText,
+      response,
+    })
     this.events.push({
       kind: 'prompt-end',
       status,
       response,
       usage,
-      finish: streamFinishReason(status),
+      finish,
     })
     if (this.lastPromptMessageId !== undefined) {
-      void this.persistRecord({ promptInFlight: false }).catch((error) => {
+      void this.persistRecord({ promptInFlight: false }).then(() => {
+        this.promptPersistedInFlight = false
+      }, (error) => {
         this.events.push({
           kind: 'error',
           error: new Error('Antigravity CLI completion could not be persisted', { cause: error }),
@@ -448,8 +475,15 @@ export class StreamJsonChildSession {
    */
   async startPrompt(message, signal) {
     if (this.promptActive) throw new Error('Antigravity CLI already has an active turn for this child')
+    if (this.interruptedMessageId !== undefined && message.id === this.interruptedMessageId) {
+      throw new Error('Antigravity CLI cannot safely replay a child turn interrupted before completion')
+    }
+    if (this.lastPromptMessageId !== undefined && message.id === this.lastPromptMessageId) {
+      throw new Error('Antigravity CLI cannot safely replay a child turn interrupted before completion')
+    }
     throwIfAborted(signal)
     const previousMessageId = this.lastPromptMessageId
+    const previousInterruptedMessageId = this.interruptedMessageId
     const table = this.sessionDomain.table('sessions')
     const restoreRecord = () => {
       const current = table.get(this.dshSessionId) ?? {}
@@ -460,12 +494,16 @@ export class StreamJsonChildSession {
       return table.put(this.dshSessionId, restored)
     }
     await this.persistRecord({ promptInFlight: true, lastDshMessageId: message.id })
+    this.promptPersistedInFlight = true
     if (signal?.aborted) {
       await restoreRecord()
+      this.promptPersistedInFlight = false
       throw abortError(signal)
     }
     this.promptActive = true
     this.promptEndConsumed = false
+    this.turnHasAssistantText = false
+    this.interruptedMessageId = undefined
     this.lastPromptMessageId = message.id
     this.lastUsage = undefined
     this.promptEpoch += 1
@@ -481,9 +519,13 @@ export class StreamJsonChildSession {
       this.clearPromptAbortListener()
       this.promptActive = false
       this.promptEndConsumed = true
+      this.interruptedMessageId = previousInterruptedMessageId
       this.lastPromptMessageId = previousMessageId
       if (signal?.aborted) {
-        try { await restoreRecord() } catch { /* in-flight state remains fail-closed */ }
+        try {
+          await restoreRecord()
+          this.promptPersistedInFlight = false
+        } catch { /* in-flight state remains fail-closed */ }
       }
       throw error
     }
@@ -504,22 +546,43 @@ export class StreamJsonChildSession {
     const call = this.toolCalls.get(callId)
     if (call === undefined) throw new Error('Antigravity CLI tool call is no longer available')
     if (signal?.aborted) {
-      await this.cancelPrompt()
+      await this.cancelPrompt().catch(() => {})
       throw abortError(signal)
     }
-    if (call.result.settled) return call.result.promise
     if (signal === undefined) return call.result.promise
-    const aborted = new Promise((_, reject) => {
+    return new Promise((resolve, reject) => {
+      let finished = false
+      const cleanup = () => signal.removeEventListener('abort', onAbort)
       const onAbort = () => {
-        signal.removeEventListener('abort', onAbort)
-        void this.cancelPrompt()
-        reject(abortError(signal))
+        if (finished) return
+        finished = true
+        cleanup()
+        void this.cancelPrompt().catch(() => {}).finally(() => {
+          reject(abortError(signal))
+        })
       }
       signal.addEventListener('abort', onAbort, { once: true })
+      call.result.promise.then((settledCall) => {
+        if (finished) return
+        if (signal.aborted) {
+          onAbort()
+          return
+        }
+        finished = true
+        cleanup()
+        resolve(settledCall)
+      }, (error) => {
+        if (finished) return
+        if (signal.aborted) {
+          onAbort()
+          return
+        }
+        finished = true
+        cleanup()
+        reject(error)
+      })
       if (signal.aborted) onAbort()
-      call.result.promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => {})
     })
-    return Promise.race([call.result.promise, aborted])
   }
 
   /**
@@ -527,7 +590,6 @@ export class StreamJsonChildSession {
    * process, and the next activation resumes the same conversation.
    */
   async cancelPrompt() {
-    if (this.disposed) return
     await this.dispose()
   }
 
@@ -538,6 +600,7 @@ export class StreamJsonChildSession {
 
   async disposeOwnedProcess() {
     if (this.disposed) return
+    const wasInFlight = this.promptActive || this.promptPersistedInFlight
     this.disposed = true
     this.promptActive = false
     this.clearPromptAbortListener()
@@ -547,10 +610,9 @@ export class StreamJsonChildSession {
     try { this.process?.stdin?.end() } catch { /* stdin may already be closed */ }
     let exited = this.process === undefined
     if (!exited) {
-      const eofGrace = Number(volatileValue(this.config.disposeEofGraceMs))
-      const bounded = Number.isFinite(eofGrace) && eofGrace > 0 ? eofGrace : 6000
+      const bounded = clampGraceMs(volatileValue(this.config.disposeEofGraceMs), DEFAULT_DISPOSE_EOF_GRACE_MS)
       try {
-        exited = await this.process.waitForExit(AbortSignal.timeout(Math.ceil(bounded)))
+        exited = await this.process.waitForExit(AbortSignal.timeout(bounded))
       } catch {
         exited = false
       }
@@ -560,5 +622,13 @@ export class StreamJsonChildSession {
       try { await this.process?.waitForExit() } catch { /* disposal still awaits done below */ }
     }
     await this.process?.done.catch(() => {})
+    if (wasInFlight) {
+      this.promptPersistedInFlight = false
+      try {
+        await this.persistRecord({ promptInFlight: false })
+      } catch {
+        /* best effort on disposal */
+      }
+    }
   }
 }

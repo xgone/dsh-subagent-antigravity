@@ -9,6 +9,18 @@
 - 清空即恢复默认：清空可执行文件、模型、agent 或宽限值会移除对应键，回到 schema 默认（`agy`、6000、3000）。
 - `providerName` 与 bundle 的工具行绑定，表单中只做只读展示；确需修改时仍编辑 Profile YAML。
 - 新增测试：子进程启动时解析实时 volatile 值、额度读者接受 getter 形式的命令/环境。`npm test` 63 项。
+- **按 agy 代码评审修复状态机缺陷**（详见 [docs/code-review-2026-11-27.md](docs/code-review-2026-11-27.md)）：
+  - 取消/中断后可恢复：`cancelPrompt()/dispose()` 在进程退出后复位持久化的 `promptInFlight`；`open()` 允许以 `--conversation` 重开，仅对重放被中断的那条消息 fail-closed。修复前取消一次即永久锁死子会话。
+  - 工具步之后 `result` 先到时不再误判「already completed」：`promptEndConsumed` 只由真正消费 `prompt-end` 的一方置真。
+  - `waitForToolCall()` 中止时先等待进程静默再 reject，取消不会再被当成成功。
+  - 空闲/异常退出的 `agy` 进程不再被复用；非 `stop` 结束会释放进程，下一轮按 `--conversation` 重启。
+  - 工具失败态现在会投影到 UI（`presentationMeta.status`），失败行自动展开；仅命令类工具解析退出码。
+  - 额度探测超时走 `stale` 降级与失败退避缓存，不再因组合信号短路。
+  - 中文词典补齐 9 个缺失键；保存失败提示改用 `saveFailed`；新增 en/zh 键集合一致性测试。
+  - 空白 `SUCCESS` 响应映射为 error（`AGY_INVALID`），符合既有 `invalid-result` 契约。
+  - 宽限值增加 schema/表单上限与使用点钳位；`link-dev-deps` 补 `dsh-llm`、`dsh-storage-domain`。
+  - 文档改为「单 Profile 单实例；换模型改配置项即可」。
+- `npm test` 82 项。
 
 ## 0.2.1 (2026-11-27)
 

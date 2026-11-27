@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { Config, apply, name, inject } from '../src/index.js'
 
 function hostContext() {
@@ -298,7 +299,22 @@ test('autoDelegate hides built-in subagents registered after an Agent exists', a
   assert.equal(agent.hiddenTools.size, 0)
 })
 
-test('apply rejects a non-positive disposeGraceMs', async () => {
+test('Config enforces positive and MAX_TIMER_DELAY_MS bounds on grace values', () => {
+  for (const field of ['disposeGraceMs', 'disposeEofGraceMs']) {
+    assert.throws(() => new Config({ [field]: 0 }))
+    assert.throws(() => new Config({ [field]: -1 }))
+    assert.throws(() => new Config({ [field]: MAX_TIMER_DELAY_MS + 1 }))
+    const valid = new Config({ [field]: MAX_TIMER_DELAY_MS })
+    assert.equal(valid[field].get(), MAX_TIMER_DELAY_MS)
+  }
+})
+
+test('apply rejects a non-positive or excessive disposeGraceMs', async () => {
   const ctx = { subagents: { registerProvider() {} }, subprocess: {}, logger: { warn() {} } }
-  await assert.rejects(() => apply(ctx, new Config({ disposeGraceMs: 0 })), /positive finite/)
+  const base = new Config({})
+  await assert.rejects(() => apply(ctx, { ...base, disposeGraceMs: { get: () => 0 } }), /positive finite/)
+  await assert.rejects(
+    () => apply(ctx, { ...base, disposeEofGraceMs: { get: () => MAX_TIMER_DELAY_MS + 1 } }),
+    /no greater than/,
+  )
 })

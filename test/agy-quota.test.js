@@ -19,7 +19,7 @@ const usageOutput = JSON.stringify({
   },
 })
 
-function fakeSubprocess({ outputs, exitCodes, onSpawn } = {}) {
+function fakeSubprocess({ outputs, exitCodes, stderrs, onSpawn } = {}) {
   let calls = 0
   const specs = []
   return {
@@ -38,7 +38,7 @@ function fakeSubprocess({ outputs, exitCodes, onSpawn } = {}) {
         done: Promise.resolve({ exitCode: exitCodes?.[index] ?? 0, signal: null }),
         collected: {
           stdout: { readFrom: offset => ({ text: outputs?.[index] ?? usageOutput, nextOffset: offset, lossy: false }) },
-          stderr: { readFrom: offset => ({ text: '', nextOffset: offset, lossy: false }) },
+          stderr: { readFrom: offset => ({ text: stderrs?.[index] ?? '', nextOffset: offset, lossy: false }) },
         },
         terminate() {},
         async waitForExit() { return true },
@@ -46,6 +46,44 @@ function fakeSubprocess({ outputs, exitCodes, onSpawn } = {}) {
     },
   }
 }
+
+test('a signed-out CLI is reported as an auth failure, not a generic CLI error', async () => {
+  const byStderr = createAgyQuotaReader({
+    subprocess: fakeSubprocess({
+      outputs: ['{"status":"ERROR","error":"authentication failed or timed out"}'],
+      exitCodes: [1],
+      stderrs: ['Authentication required. Please visit the URL to log in:'],
+    }),
+    command: 'agy', env: {}, cwd: '/workspace',
+  })
+  assert.equal((await byStderr.read()).reason, 'auth')
+
+  const byStdout = createAgyQuotaReader({
+    subprocess: fakeSubprocess({
+      outputs: ['{"status":"ERROR","error":"authentication failed or timed out"}'],
+      exitCodes: [0],
+    }),
+    command: 'agy', env: {}, cwd: '/workspace',
+  })
+  assert.equal((await byStdout.read()).reason, 'auth')
+  await byStderr.dispose()
+  await byStdout.dispose()
+})
+
+test('the probe process cannot launch a desktop browser opener', async () => {
+  if (process.platform === 'win32') return
+  let probePath
+  const subprocess = fakeSubprocess({
+    outputs: [usageOutput],
+    onSpawn(spec) { probePath = spec.env.PATH },
+  })
+  const reader = createAgyQuotaReader({ subprocess, command: 'agy', env: {}, cwd: '/workspace' })
+  await reader.read()
+  assert.equal(typeof probePath, 'string')
+  assert.match(probePath, /agy-quota-shim-/u)
+  assert.ok(probePath.split(':')[0].includes('agy-quota-shim-'))
+  await reader.dispose()
+})
 
 test('quota parser keeps the CLI remaining fraction and reset timestamps', () => {
   const snapshot = parseAgyQuotaOutput(usageOutput, () => Date.parse('2026-11-26T12:00:00Z'))

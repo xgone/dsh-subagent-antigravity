@@ -1,9 +1,12 @@
 /**
- * Profile-named Antigravity one-shot subagent provider. Every accepted run
- * starts a fresh Google Antigravity CLI (`agy`) headless stream-json session in
- * the delegating Session's workspace and publishes only after the CLI reports
- * an established session. Native Antigravity authentication and settings stay
- * authoritative; this provider adds delegation, result mapping and teardown.
+ * Profile-named Antigravity subagent provider. DSH owns a real child Agent and
+ * Session; that child's LLM route talks to one long-lived Google Antigravity
+ * CLI (`agy`) process over the product's native stream-json protocol, and each
+ * native tool step becomes a durable progress row in the child Session.
+ *
+ * The CLI keeps native authentication, settings and execution; this provider
+ * adds child-session continuity, live progress, result mapping and teardown.
+ * No ACP server is involved: the CLI runs in its own `--print` stream-json mode.
  *
  * @module @xgone/dsh-subagent-antigravity
  */
@@ -13,25 +16,47 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   assertPositiveFinite,
   assertUsableCwd,
-  NO_START_CAPABILITIES,
 } from '@deepseek-ai/dsh-subagent'
 import {
   ANTIGRAVITY_PERMISSION_MODES,
   DEFAULT_ANTIGRAVITY_PERMISSION_MODE,
+  DEFAULT_DISPOSE_EOF_GRACE_MS,
   DEFAULT_DISPOSE_GRACE_MS,
 } from './antigravity.js'
-import { antigravityStatusProjection } from './status-projection.js'
 import { installAutoDelegateRouting } from './enforcement.js'
-import { antigravityStartupFailure, startAntigravityRun } from './run.js'
 import { createAgyQuotaReader } from './agy-quota.js'
+import { AntigravityStreamLlmAdapter } from './adapter.js'
+import { STREAM_MODEL, STREAM_PROVIDER } from './stream-json.js'
+import { STREAM_SESSION_DOMAIN_SPEC } from './session-domain.js'
+import { agyProgressToolActivation, createAgyProgressTool } from './progress-tool.js'
 
 export const name = 'subagent-antigravity'
-export const inject = ['subagents', 'subprocess', 'systemPrompt', 'sessionProjections', 'agents', 'tools']
+export const inject = [
+  'subagents',
+  'subprocess',
+  'systemPrompt',
+  'agents',
+  'tools',
+  'llm',
+  'storageDomain',
+]
 
 const DEFAULT_PROVIDER_NAME = 'antigravity'
 const DEFAULT_COMMAND = 'agy'
 const AUTO_DELEGATE_SECTION_NAME = 'subagent-antigravity:auto-delegation'
 const AGY_QUOTA_ROUTE_PATH = '/api/xgone/agy-quota'
+
+/**
+ * Startup failures stay behind fixed safe facts: the child Agent never sees a
+ * raw path, environment value or protocol payload.
+ * @param {unknown} cause
+ * @returns {Error}
+ */
+function antigravityStartupFailure(cause) {
+  return new Error('Antigravity child session could not start', {
+    cause: cause instanceof Error ? cause : new Error(String(cause)),
+  })
+}
 
 function installAgyQuotaRoute(ctx, config) {
   const quotaReader = createAgyQuotaReader({
@@ -86,6 +111,7 @@ export const AUTO_DELEGATE_INSTRUCTIONS = [
  * @property {string} [agent] - native custom agent passed as `--agent`; omitted to inherit.
  * @property {import('@deepseek-ai/cordis').Volatile<'default'|'accept-edits'|'auto'|'dangerously-skip-permissions'>} permissionMode - volatile permission posture exposed in the Plugins form.
  * @property {Record<string, string>} [env] - explicit child environment layered over the scrubbed parent environment.
+ * @property {number} [disposeEofGraceMs] - grace for the CLI to flush a session after stdin EOF.
  * @property {number} [disposeGraceMs] - grace between managed-range termination tiers.
  * @property {import('@deepseek-ai/cordis').Volatile<boolean>} autoDelegate - hide built-in DSH subagent tools for each live Agent and ask it to use `subagent_antigravity` for new user tasks.
  */
@@ -100,6 +126,7 @@ export const Config = z.object({
     .default(DEFAULT_ANTIGRAVITY_PERMISSION_MODE)
     .volatile(),
   env: z.dict(z.string()).default({}),
+  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
   autoDelegate: z.boolean().default(false).volatile(),
 })
@@ -108,52 +135,42 @@ class AntigravityProvider {
   /** @param {string} providerName @param {import('@deepseek-ai/cordis').Context} ctx @param {Required<Omit<Config, 'model'|'effort'|'agent'>> & Pick<Config,'model'|'effort'|'agent'>} config */
   constructor(providerName, ctx, config) {
     this.name = providerName
-    this.capabilities = NO_START_CAPABILITIES
+    this.capabilities = Object.freeze({
+      agentOptions: true,
+      agentPreset: true,
+      outputSchema: true,
+      depthLimit: true,
+    })
     this.inheritsParentContext = false
+    this.agentRouteDefaults = Object.freeze({ provider: STREAM_PROVIDER, model: STREAM_MODEL })
     this.ctx = ctx
     this.config = config
   }
 
   /**
-   * @param {import('@deepseek-ai/dsh-subagent').ResolvedSubagentStartRequest} request
-   * @returns {Promise<import('@deepseek-ai/dsh-subagent').SubagentRun>}
+   * DSH owns the child Agent and its durable Session; this provider contributes
+   * only a fresh, unseeded child. The child route is pinned to the CLI adapter
+   * registered by this plugin, which keeps one `agy` process per child Session.
+   *
+   * @param {import('@deepseek-ai/dsh-subagent').ContinuableCreateRequest} request
+   * @returns {Promise<import('@deepseek-ai/dsh-subagent').ContinuableCreateSpec>}
    */
-  async start(request) {
-    let cwd
+  async prepareContinuable(request) {
+    if (request.signal.aborted) {
+      throw new Error('subagent-antigravity: request was aborted before child creation')
+    }
     try {
-      cwd = assertUsableCwd('subagent-antigravity', 'child cwd', request.cwd)
+      assertUsableCwd('subagent-antigravity', 'child cwd', request.cwd)
     } catch (error) {
-      if (request.signal.aborted) {
-        throw new Error('subagent-antigravity: request was aborted before CLI startup')
-      }
       throw antigravityStartupFailure(error)
     }
-
-    /** @type {import('./run.js').AntigravityRunSpec} */
-    const spec = {
-      cwd,
-      ...this.config.model === undefined ? {} : { model: this.config.model },
-      ...this.config.effort === undefined ? {} : { effort: this.config.effort },
-      ...this.config.agent === undefined ? {} : { agent: this.config.agent },
-      permissionMode: this.config.permissionMode.get(),
-      env: this.config.env,
-      disposeGraceMs: this.config.disposeGraceMs,
-      command: this.config.command,
-      resolveExecutable: (command, env, signal) => this.ctx.subprocess.resolveExecutable(command, env, signal),
-      spawn: (spawnSpec) => this.ctx.subprocess.spawn(spawnSpec),
-      onError: (error, stopReason) => {
-        this.ctx.logger.warn(
-          `subagent-antigravity "${this.name}": child run failed (${stopReason}): ${error.message}`,
-        )
-      },
-    }
-    return startAntigravityRun(request, spec)
+    return {}
   }
 }
 
 /**
  * Register one Profile-named Antigravity provider.
- * @param {import('@deepseek-ai/cordis').Context} ctx - context carrying shared subagent and subprocess services.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - context carrying shared subagent, subprocess, LLM and storage services.
  * @param {Config} config - registry name, executable, model/effort/agent overrides, permission mode, env and disposal grace.
  */
 export async function apply(ctx, config) {
@@ -166,16 +183,27 @@ export async function apply(ctx, config) {
     ...config.agent === undefined ? {} : { agent: config.agent },
     permissionMode: config.permissionMode,
     env: config.env ?? {},
+    disposeEofGraceMs: config.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS,
     disposeGraceMs: config.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
     autoDelegate: config.autoDelegate,
   }
+  assertPositiveFinite('subagent-antigravity', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
   assertPositiveFinite('subagent-antigravity', 'disposeGraceMs', resolved.disposeGraceMs)
+  if (resolved.disposeEofGraceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`subagent-antigravity: disposeEofGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
   if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   installAgyQuotaRoute(ctx, resolved)
-  const statusProjection = await ctx.sessionProjections.register(antigravityStatusProjection)
-  ctx.effect(() => () => statusProjection.dispose(), 'subagent-antigravity.status-projection')
+
+  const streamSessionDomain = await ctx.storageDomain.open(STREAM_SESSION_DOMAIN_SPEC)
+  ctx.effect(() => () => streamSessionDomain.close(), 'subagent-antigravity.stream-session-domain')
+  const adapter = new AntigravityStreamLlmAdapter(ctx, resolved, streamSessionDomain)
+  ctx.llm.registerAdapter([STREAM_PROVIDER], adapter)
+  ctx.tools.register(createAgyProgressTool(adapter), { when: agyProgressToolActivation })
+  ctx.effect(() => () => adapter.disposeAll(), 'subagent-antigravity.stream-sessions')
+
   ctx.subagents.registerProvider(new AntigravityProvider(resolved.providerName, ctx, resolved))
   const routing = installAutoDelegateRouting(ctx)
   let disposeAutoDelegateSection

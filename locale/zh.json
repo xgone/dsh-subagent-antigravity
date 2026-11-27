@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Antigravity 子智能体",
-    "description": "通过 Google Antigravity CLI（agy）委派任务，并在 DSH 输入框下方显示账号额度与重置时间。"
+    "description": "通过 Google Antigravity CLI（agy）在实时 DSH 子会话里委派任务，并在 DSH 输入框下方显示账号额度与重置时间。"
   }
 }

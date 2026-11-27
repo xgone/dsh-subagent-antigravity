@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Antigravity subagent",
-    "description": "Delegate tasks to the Google Antigravity CLI (agy) and show its account quota and reset times in the DSH composer."
+    "description": "Delegate tasks to the Google Antigravity CLI (agy) in a live DSH child Session, and show its account quota and reset times in the DSH composer."
   }
 }

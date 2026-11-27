@@ -9,6 +9,9 @@ function hostContext() {
   const listeners = new Map()
   const disposers = new Map()
   const guards = []
+  const adapterRegistrations = []
+  const domainSpecs = []
+  const toolRegistrations = []
   const optionalInjections = []
   const agents = []
   const availableTools = new Set(['subagent', 'subagent_fork', 'subagent_antigravity'])
@@ -51,6 +54,10 @@ function hostContext() {
     },
     agents: { list() { return [...agents] } },
     tools: {
+      register(tool, options) {
+        toolRegistrations.push({ tool, options })
+        return () => {}
+      },
       get(name, agent) {
         if (agent?.scopedTools.has(name)) return { name, scope: 'local' }
         if (!availableTools.has(name) || agent?.hiddenTools.has(name)) return undefined
@@ -59,6 +66,27 @@ function hostContext() {
       guard(guard) {
         guards.push(guard)
         return () => { guards.splice(guards.indexOf(guard), 1) }
+      },
+    },
+    llm: {
+      registerAdapter(providers, adapter) {
+        adapterRegistrations.push({ providers: [...providers], adapter })
+        return () => {}
+      },
+    },
+    storageDomain: {
+      async open(spec) {
+        domainSpecs.push(spec)
+        return {
+          table() {
+            return {
+              get() { return undefined },
+              async put() {},
+              async update() {},
+            }
+          },
+          close() {},
+        }
       },
     },
     sessionProjections: {
@@ -89,12 +117,17 @@ function hostContext() {
     },
   }
   const guardReason = (agent, name) => guards.map(guard => guard({ agent, name })).find(reason => reason !== undefined)
-  return { ctx, registrations, projections, sections, listeners, disposers, guards, agents, optionalInjections, availableTools, makeAgent, guardReason }
+  return {
+    ctx, registrations, projections, sections, listeners, disposers, guards, agents, optionalInjections,
+    availableTools, adapterRegistrations, domainSpecs, toolRegistrations, makeAgent, guardReason,
+  }
 }
 
 test('plugin advertises its identity and injected services', () => {
   assert.equal(name, 'subagent-antigravity')
-  assert.deepEqual([...inject], ['subagents', 'subprocess', 'systemPrompt', 'sessionProjections', 'agents', 'tools'])
+  assert.deepEqual([...inject], [
+    'subagents', 'subprocess', 'systemPrompt', 'agents', 'tools', 'llm', 'storageDomain',
+  ])
 })
 
 test('Config fills documented defaults and omits the optional native overrides', () => {
@@ -104,6 +137,7 @@ test('Config fills documented defaults and omits the optional native overrides',
   assert.equal(resolved.permissionMode.get(), 'default')
   assert.deepEqual(resolved.env, {})
   assert.equal(resolved.disposeGraceMs, 3000)
+  assert.equal(resolved.disposeEofGraceMs, 6000)
   assert.equal(resolved.autoDelegate.get(), false)
   assert.equal('model' in resolved, false)
   assert.equal('effort' in resolved, false)
@@ -114,22 +148,33 @@ test('Config rejects an unknown permission mode', () => {
   assert.throws(() => new Config({ permissionMode: 'bogus' }), /permissionMode|union|expected/i)
 })
 
-test('apply registers one provider and leaves the quota route optional outside Web profiles', async () => {
-  const { ctx, registrations, projections, disposers, optionalInjections } = hostContext()
+test('apply registers a continuable provider, the CLI LLM route and the progress proxy', async () => {
+  const { ctx, registrations, projections, disposers, optionalInjections, adapterRegistrations, domainSpecs, toolRegistrations } = hostContext()
   await apply(ctx, new Config({ providerName: 'agy-prod', model: 'gemini-4-neon-high' }))
   assert.equal(registrations.length, 1)
-  assert.equal(projections[0].key, 'antigravityStatus')
-  assert.equal(disposers.has('subagent-antigravity.status-projection'), true)
   assert.deepEqual(optionalInjections, [['connection']])
   assert.equal(disposers.has('subagent-antigravity.agy-quota-reader'), true)
+
   const provider = registrations[0]
   assert.equal(provider.name, 'agy-prod')
   assert.equal(provider.inheritsParentContext, false)
   assert.deepEqual(provider.capabilities, {
-    agentOptions: false, agentPreset: false, outputSchema: false, depthLimit: false,
+    agentOptions: true, agentPreset: true, outputSchema: true, depthLimit: true,
   })
-  assert.equal(typeof provider.start, 'function')
+  assert.equal(typeof provider.prepareContinuable, 'function')
+  assert.equal('start' in provider, false)
+  assert.deepEqual(provider.agentRouteDefaults, { provider: 'agy-stream', model: 'native' })
   assert.equal(provider.config.permissionMode.get(), 'default')
+
+  assert.equal(adapterRegistrations.length, 1)
+  assert.deepEqual(adapterRegistrations[0].providers, ['agy-stream'])
+  assert.equal(domainSpecs[0].name, 'xgone_antigravity_stream_sessions')
+  assert.equal(toolRegistrations.length, 1)
+  assert.equal(toolRegistrations[0].tool.name, 'agy_progress')
+  assert.equal(toolRegistrations[0].options.when({ modelSelection: { provider: 'agy-stream' } }), true)
+  assert.equal(toolRegistrations[0].options.when({ modelSelection: { provider: 'deepseek' } }), false)
+  assert.equal(disposers.has('subagent-antigravity.stream-session-domain'), true)
+  assert.equal(disposers.has('subagent-antigravity.stream-sessions'), true)
 })
 
 test('quota fetch route is attached only when the optional Connection service is present', async () => {

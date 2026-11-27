@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 const AGY_QUOTA_ARGUMENTS = Object.freeze([
   '--print', '/usage', '--output-format', 'json', '--print-timeout', '30s',
 ])
@@ -8,6 +12,40 @@ const PROCESS_GRACE_MS = 2000
 const DEFAULT_REFRESH_MS = 60_000
 const FAILURE_REFRESH_MS = 15_000
 const DEFAULT_TIMEOUT_MS = 35_000
+/** A signed-out CLI is a stable state: do not re-probe on every composer tick. */
+const AUTH_FAILURE_REFRESH_MS = 10 * 60_000
+
+/** Native browser openers the CLI may invoke while starting an interactive login. */
+const OPENER_NAMES = Object.freeze(['open', 'xdg-open', 'sensible-browser', 'x-www-browser'])
+
+/** Product text that identifies a signed-out CLI rather than a transient failure. */
+const AUTH_PATTERN = /authenticat|not logged in|login required|please (?:visit|sign in)/i
+
+/**
+ * A background quota probe must never hijack the desktop. When `agy` is signed
+ * out it launches an interactive OAuth login through a browser opener; give the
+ * probe a PATH whose openers exit immediately so no window can appear.
+ * @returns {{env: (env: Record<string, string>) => Record<string, string>, dispose: () => void} | undefined}
+ */
+function createOpenerNeutralizer() {
+  if (process.platform === 'win32') return undefined
+  let dir
+  try {
+    dir = mkdtempSync(join(tmpdir(), 'agy-quota-shim-'))
+    for (const name of OPENER_NAMES) writeFileSync(join(dir, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  } catch {
+    return undefined
+  }
+  return {
+    env(env) {
+      const base = typeof env?.PATH === 'string' && env.PATH !== '' ? env.PATH : process.env.PATH
+      return typeof base === 'string' && base !== '' ? { ...env, PATH: `${dir}:${base}` } : { ...env }
+    },
+    dispose() {
+      try { rmSync(dir, { recursive: true, force: true }) } catch { /* best effort */ }
+    },
+  }
+}
 
 function fetchedAt(now) {
   return new Date(now()).toISOString()
@@ -40,6 +78,10 @@ export function parseAgyQuotaOutput(stdout, now = Date.now) {
     payload = JSON.parse(stdout)
   } catch {
     return unavailable('invalid-json', now)
+  }
+
+  if (payload?.status === 'ERROR' && typeof payload.error === 'string' && AUTH_PATTERN.test(payload.error)) {
+    return unavailable('auth', now)
   }
 
   const groups = payload?.command?.name === 'usage' ? payload.command.data?.groups : undefined
@@ -83,7 +125,7 @@ function abortSignalError(signal) {
   return signal.reason instanceof Error ? signal.reason : new Error('Agy quota request cancelled')
 }
 
-async function runAgyQuotaQuery({ subprocess, command, env, cwd, signal, timeoutSignal, now }) {
+async function runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signal, timeoutSignal, now }) {
   let child
   try {
     const executable = await subprocess.resolveExecutable(command, env, signal)
@@ -97,12 +139,39 @@ async function runAgyQuotaQuery({ subprocess, command, env, cwd, signal, timeout
         stderr: { maxBytes: STDERR_LIMIT_BYTES },
       },
       graceMs: PROCESS_GRACE_MS,
-      env,
+      env: probeEnv ?? env,
       signal,
     })
-    const outcome = await child.done
+    // A signed-out CLI prints its login URL to stderr and then waits for an
+    // OAuth callback that can never arrive headless. Watch stderr so the probe
+    // reports the stable auth failure immediately instead of burning the whole
+    // timeout on a flow it neutralized.
+    let authPoll
+    const authSeen = new Promise((resolve) => {
+      authPoll = setInterval(() => {
+        const stderr = child.collected.stderr?.readFrom?.(0)
+        if (typeof stderr?.text === 'string' && AUTH_PATTERN.test(stderr.text)) resolve('auth')
+      }, 200)
+      authPoll.unref?.()
+    })
+    let outcome
+    try {
+      outcome = await Promise.race([child.done, authSeen.then(() => 'auth')])
+    } finally {
+      clearInterval(authPoll)
+    }
     signal.throwIfAborted()
-    if (outcome.exitCode !== 0) return unavailable('cli', now)
+    if (outcome === 'auth') {
+      child.terminate()
+      await child.waitForExit().catch(() => false)
+      await child.done.catch(() => {})
+      return unavailable('auth', now)
+    }
+    if (outcome.exitCode !== 0) {
+      const stderr = child.collected.stderr?.readFrom?.(0)
+      const stderrText = typeof stderr?.text === 'string' ? stderr.text : ''
+      return unavailable(AUTH_PATTERN.test(stderrText) ? 'auth' : 'cli', now)
+    }
     const stdout = child.collected.stdout?.readFrom(0)
     if (stdout === undefined || stdout.lossy) return unavailable('output-limit', now)
     return parseAgyQuotaOutput(stdout.text, now)
@@ -148,6 +217,8 @@ export function createAgyQuotaReader({
   if (typeof command !== 'string' || command.length === 0) throw new TypeError('subagent-antigravity: Agy quota command is empty')
   if (typeof cwd !== 'string' || cwd.length === 0) throw new TypeError('subagent-antigravity: Agy quota working directory is empty')
 
+  const openerNeutralizer = createOpenerNeutralizer()
+  const probeEnv = openerNeutralizer === undefined ? env : openerNeutralizer.env(env)
   const lifetime = new AbortController()
   let cached
   let cacheUntil = 0
@@ -160,7 +231,7 @@ export function createAgyQuotaReader({
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
     const signal = AbortSignal.any([lifetime.signal, controller.signal, timeoutSignal])
     const flight = { controller, timeoutSignal, readers: 0, settled: false, promise: undefined }
-    flight.promise = runAgyQuotaQuery({ subprocess, command, env, cwd, signal, timeoutSignal, now })
+    flight.promise = runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signal, timeoutSignal, now })
       .then((snapshot) => {
         if (signal.aborted) return snapshot
         if (snapshot.status === 'ready') {
@@ -172,7 +243,7 @@ export function createAgyQuotaReader({
         cached = lastGood === undefined
           ? snapshot
           : { ...lastGood, status: 'stale', reason: snapshot.reason }
-        cacheUntil = now() + failureRefreshMs
+        cacheUntil = now() + (snapshot.reason === 'auth' ? AUTH_FAILURE_REFRESH_MS : failureRefreshMs)
         return cached
       })
       .finally(() => {
@@ -210,6 +281,7 @@ export function createAgyQuotaReader({
     }
     cached = undefined
     lastGood = undefined
+    openerNeutralizer?.dispose()
   }
 
   return { read, dispose }

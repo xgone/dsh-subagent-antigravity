@@ -15,7 +15,7 @@
 
 <p align="center"><strong>Delegate a task. Keep your main DSH conversation clean.</strong></p>
 
-Give your DSH agent a second pair of hands: it can hand one self-contained task to the **Google Antigravity CLI** (`agy`), which runs it in its own fresh session inside your workspace and reports the final answer back. You keep talking to DSH; Antigravity does the work.
+Give your DSH agent a second pair of hands: it hands a self-contained task to the **Google Antigravity CLI** (`agy`), which works inside your workspace in its **own DSH child Session** — so you can open that child and watch it think, type and run tools live — and then reports the answer back. You keep talking to DSH; Antigravity does the work.
 
 Typical uses: a long review or research pass, a task that should not clutter your main conversation, or a job you want isolated in its own working directory.
 
@@ -23,7 +23,7 @@ Antigravity keeps its own login and settings. This plugin never stores credentia
 
 ## Agy account quota
 
-When a DSH conversation is open, the composer footer shows a compact Agy account quota reading (remaining percentages only) at the right of the context-usage reading. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable or signed out, the pill reports that quota is unavailable.
+When a DSH conversation is open, the composer footer shows a compact Agy account quota reading at the right of the context-usage reading. On narrow screens (under 480 px, i.e. phones) it collapses to a single tightest value such as `Agy·99%`; the full per-window detail stays in the panel. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable the pill reports that quota is unavailable. When the CLI is signed out the pill says you need to sign in from a terminal, and the background probe never opens a browser window — its process runs with browser openers neutralized, and a signed-out result is cached for ten minutes instead of being retried every minute.
 
 ## Install
 
@@ -100,7 +100,7 @@ The model applies to every delegation from that Profile. DSH's generic "model se
 
 - **Automatic:** with automatic delegation on, send a normal message — the local DSH subagent tools are hidden for that Agent, and the model is asked to call `subagent_antigravity` and relay its result. The model can still answer directly or use other tools.
 - **Manual:** ask your agent to use `subagent_antigravity` for a specific task.
-- **While it runs:** the Session header shows a running indicator and the number of active tasks. It disappears when the task finishes, and the result arrives as a normal reply in the conversation.
+- **While it runs:** the Session header lists the live child under "N 个子智能体" (the Antigravity plugin no longer adds its own running badge — the child Session is the status). The child Session itself streams live — assistant text types out and every Antigravity tool step appears as a row with its command, state, duration, exit code, an openable file path and the real output (expand "已调用工具"/"tools called" in the child transcript), and the child's Trajectory tab has the full turn/step view — and you can keep talking to that child with `send_message` to continue the same Antigravity conversation.
 
 ## FAQ
 
@@ -119,17 +119,17 @@ That is the permission mode. Raise it to `auto`, or to `dangerously-skip-permiss
 **My model name is rejected.**
 Slugs must match `agy models` exactly. A wrong slug fails at run time with a safe error rather than being silently replaced.
 
-**I only got the final answer, not the step-by-step work.**
-That is intentional: the child's reasoning, tool calls and terminal output stay in Antigravity and never enter your DSH conversation. You get the answer, or a clear failure message.
+**Where do I see the step-by-step work?**
+In the child Session: open the "N 个子智能体" tree in the Session header and pick the running child. Its transcript streams assistant text and one card per Antigravity tool step with the real command output. The parent conversation still receives only the final answer or a clear failure message.
 
-**Can I continue the same Antigravity session later?**
-No. Each delegation is one fresh, one-shot `agy` run.
+**Can I continue the same Antigravity conversation later?**
+Yes. Send another message to the child (or ask the parent to), and the plugin reuses the same `agy` conversation — the CLI process is kept alive while the child Session is open and resumed with `--conversation` after a restart. Cancelling a turn ends the CLI process; the next message resumes the conversation.
 
 **Does this store my API keys?**
 No. It reuses Antigravity's own authentication. Any credential you deliberately pass to the child goes through the `env` setting in your own Profile file.
 
-**Why does the header indicator sometimes not appear?**
-It only shows while a task is actually running. If a task is very short, you may miss it; the result still arrives in the conversation.
+**Where is the running indicator?**
+There is no separate Antigravity badge: the Session header's "N 个子智能体" entry is the status, and the child Session (with its live transcript and Trajectory tab) is where you see the work.
 
 ## More
 

@@ -21,16 +21,24 @@ window.__ModuleLoader__.load({
         saving: 'Saving…',
         saved: 'Saved.',
         saveFailed: 'Could not save this setting. Refresh the page and try again.',
-        statusOne: 'Antigravity is working',
-        statusMany: 'Antigravity is working ({count})',
         quotaLabel: 'Agy quota',
         quotaLoading: 'Loading Agy quota…',
         quotaUnavailable: 'Agy quota unavailable',
         quotaUnavailableHelp: 'Check that the Agy CLI is installed and signed in.',
+        quotaSignIn: 'Sign in to agy in a terminal',
+        toolStatePreparing: 'preparing',
+        toolStateRunning: 'running',
+        toolStateDone: 'done',
+        toolStateFailed: 'failed',
+        toolExpand: 'show output',
+        toolCollapse: 'hide output',
+        toolArguments: 'arguments',
+        toolExitCode: 'exit {code}',
         quotaTitle: 'Agy account quota',
         quotaNextReset: 'Next reset {time}',
         quotaRemaining: '{window} {percent}% left',
         quotaShort: '{window} {percent}%',
+        quotaMobile: 'Agy·{percent}%',
         quotaReset: 'resets {time}',
         quotaLastUpdated: 'Updated {time}',
         quotaStale: 'stale',
@@ -57,8 +65,6 @@ window.__ModuleLoader__.load({
         saving: '正在保存…',
         saved: '已保存。',
         saveFailed: '保存失败。请刷新页面后重试。',
-        statusOne: 'Antigravity 正在运行',
-        statusMany: 'Antigravity 正在运行（{count} 个任务）',
         quotaLabel: 'Agy 额度',
         quotaLoading: '正在读取 Agy 额度…',
         quotaUnavailable: 'Agy 额度暂不可用',
@@ -67,6 +73,7 @@ window.__ModuleLoader__.load({
         quotaNextReset: '下次重置 {time}',
         quotaRemaining: '{window} 剩余 {percent}%',
         quotaShort: '{window} {percent}%',
+        quotaMobile: 'Agy·{percent}%',
         quotaReset: '重置于 {time}',
         quotaLastUpdated: '更新于 {time}',
         quotaStale: '缓存数据',
@@ -243,48 +250,6 @@ window.__ModuleLoader__.load({
         }, t(feedback)))
     }
 
-    function AntigravityStatusAction(props) {
-      const { sessionId, useSessions, t } = props
-      const count = useSessions((snapshot) => {
-        const view = snapshot.projectionsBySession?.[sessionId]?.values?.antigravityStatus
-        return typeof view?.count === 'number' ? view.count : 0
-      })
-      if (count < 1) return null
-      return h('span', {
-        role: 'status',
-        'aria-live': 'polite',
-        title: t(count === 1 ? 'statusOne' : 'statusMany', { count }),
-        style: {
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '12px',
-          whiteSpace: 'nowrap',
-        },
-      },
-      h('svg', {
-        viewBox: '0 0 24 24',
-        width: 14,
-        height: 14,
-        'aria-hidden': 'true',
-        focusable: 'false',
-      },
-      h('circle', {
-        cx: 12, cy: 12, r: 9, fill: 'none',
-        stroke: 'var(--dsw-alias-border-l2)', strokeWidth: 2,
-      }),
-      h('circle', {
-        cx: 12, cy: 12, r: 9, fill: 'none',
-        stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 2,
-        strokeDasharray: '20 60', strokeLinecap: 'round',
-      }, h('animateTransform', {
-        attributeName: 'transform', type: 'rotate',
-        from: '0 12 12', to: '360 12 12', dur: '0.9s', repeatCount: 'indefinite',
-      }))),
-      h('span', null, t(count === 1 ? 'statusOne' : 'statusMany', { count })))
-    }
-
     const AGY_QUOTA_ROUTE = 'api/xgone/agy-quota'
     const AGY_QUOTA_REFRESH_MS = 60_000
 
@@ -310,15 +275,16 @@ window.__ModuleLoader__.load({
     }
 
     function quotaPresentation(snapshot, t) {
-      const empty = status => ({
-        text: status === 'loading' ? t('quotaLoading') : t('quotaUnavailable'),
-        status,
-        low: false,
-        rows: [],
-        nextReset: null,
-      })
+      const empty = (status, reason) => {
+        const text = status === 'loading'
+          ? t('quotaLoading')
+          : reason === 'auth' ? t('quotaSignIn') : t('quotaUnavailable')
+        return { text, mobileText: text, status, low: false, rows: [], nextReset: null }
+      }
       if (snapshot === undefined) return empty('loading')
-      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) return empty('unavailable')
+      if (snapshot.status === 'unavailable' || !Array.isArray(snapshot.groups)) {
+        return empty('unavailable', snapshot.reason)
+      }
 
       const buckets = snapshot.groups.flatMap(group => (Array.isArray(group?.buckets) ? group.buckets : [])
         .filter(bucket => typeof bucket?.remainingFraction === 'number'
@@ -354,8 +320,12 @@ window.__ModuleLoader__.load({
           && Number.isFinite(Date.parse(value))
           && Date.parse(value) > Date.now())
         .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null
+      // Narrow viewports have no room for per-window labels; show the tightest
+      // remaining percentage only, with the full reading kept for the panel.
+      const worstPercent = Math.round(unique[0].bucket.remainingFraction * 100)
       return {
         text: `${t('quotaLabel')} ${compact.join(' · ')}${stale}`,
+        mobileText: t('quotaMobile', { percent: worstPercent }),
         status: snapshot.status === 'stale' ? 'stale' : 'ready',
         low: unique[0].bucket.remainingFraction <= 0.1,
         rows,
@@ -396,9 +366,34 @@ window.__ModuleLoader__.load({
         }, t('quotaReset', { time: row.reset })))
     }
 
+    /** Phones and other narrow surfaces get a one-number quota reading. */
+    const NARROW_QUERY = '(max-width: 480px)'
+
+    function useNarrowViewport() {
+      const [narrow, setNarrow] = React.useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+          ? window.matchMedia(NARROW_QUERY).matches
+          : false
+      ))
+      React.useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
+        const query = window.matchMedia(NARROW_QUERY)
+        const onChange = () => { setNarrow(query.matches) }
+        setNarrow(query.matches)
+        if (typeof query.addEventListener === 'function') {
+          query.addEventListener('change', onChange)
+          return () => { query.removeEventListener('change', onChange) }
+        }
+        query.addListener(onChange)
+        return () => { query.removeListener(onChange) }
+      }, [])
+      return narrow
+    }
+
     function AgyQuotaDock({ t }) {
       const [snapshot, setSnapshot] = React.useState(undefined)
       const [open, setOpen] = React.useState(false)
+      const narrow = useNarrowViewport()
       const [pos, setPos] = React.useState(null)
       const anchorRef = React.useRef(null)
       const panelRef = React.useRef(null)
@@ -493,6 +488,7 @@ window.__ModuleLoader__.load({
         type: 'button',
         'data-agy-quota': view.status,
         'aria-label': view.text,
+        title: narrow ? view.text : undefined,
         'aria-haspopup': 'dialog',
         'aria-expanded': open,
         onClick: toggle,
@@ -516,7 +512,7 @@ window.__ModuleLoader__.load({
           whiteSpace: 'nowrap',
           cursor: 'pointer',
         },
-      }, view.text)
+      }, narrow ? view.mobileText : view.text)
 
       const panel = open && pos !== null && rowsLength > 0
         ? createPortal(h('div', {
@@ -566,6 +562,203 @@ window.__ModuleLoader__.load({
       return h(React.Fragment, null, pill, panel)
     }
 
+    /**
+     * One Antigravity CLI tool step inside the child Session transcript. The
+     * DSH web client only knows its own built-in tool names, so a custom tool
+     * would otherwise render as a bare "tool call · name · id" row. This keyed
+     * view shows the native command and its real output.
+     */
+    const toolKindGlyphs = {
+      execute: '$',
+      read: '▤',
+      edit: '✎',
+      delete: '⌫',
+      move: '⇄',
+      search: '⌕',
+      fetch: '↧',
+      other: '·',
+    }
+
+    function agyReadArg(block, name) {
+      try {
+        const text = block && block.args && typeof block.args.text === 'function' ? block.args.text(name) : undefined
+        return typeof text === 'string' ? text : ''
+      } catch {
+        return ''
+      }
+    }
+
+    function agyParseJson(text) {
+      if (typeof text !== 'string' || text === '') return undefined
+      try {
+        return JSON.parse(text)
+      } catch {
+        return undefined
+      }
+    }
+
+    /**
+     * One Antigravity CLI tool step inside the child Session transcript. The
+     * DSH web client only classifies its own built-in tool names, so a custom
+     * recorder would render as a bare "tool call · name · id" row. This keyed
+     * view shows the native command, its state, duration, exit code, the file it
+     * touched (openable) and the CLI's real output.
+     */
+    function AgyProgressRow({ block, phase, t, openFile, cwd }) {
+      const [open, setOpen] = React.useState(false)
+      const title = agyReadArg(block, 'title')
+      const rawInputText = agyReadArg(block, 'rawInputText')
+      const meta = phase === 'result' && block && typeof block.meta === 'object' && block.meta !== null
+        ? block.meta
+        : undefined
+      const kind = meta && typeof meta.kind === 'string' ? meta.kind : agyReadArg(block, 'kind') || 'other'
+      const state = phase === 'preparing' ? 'preparing'
+        : phase === 'start' ? 'running'
+          : block && block.isError ? 'failed' : 'done'
+      const output = phase === 'result' && block && Array.isArray(block.content)
+        ? block.content
+          .filter(item => item && item.type === 'text' && typeof item.text === 'string')
+          .map(item => item.text)
+          .join('\n')
+          .trim()
+        : ''
+      const parameters = agyParseJson(rawInputText)
+      const path = parameters !== null && typeof parameters === 'object'
+        ? ['Path', 'path', 'file_path', 'FilePath', 'AbsolutePath', 'DirectoryPath', 'TargetFile']
+          .map(key => parameters[key])
+          .find(value => typeof value === 'string' && value.trim() !== '')
+        : undefined
+      const summary = typeof path === 'string' && typeof cwd === 'string' && cwd !== '' && path.startsWith(cwd)
+        ? `.${path.slice(cwd.length) === '' ? '/' : path.slice(cwd.length)}`
+        : path
+      const duration = meta && typeof meta.durationSeconds === 'number'
+        ? `${meta.durationSeconds < 10 ? meta.durationSeconds.toFixed(1) : Math.round(meta.durationSeconds)}s`
+        : ''
+      const exitCode = meta && Number.isInteger(meta.exitCode) ? meta.exitCode : undefined
+      const stateKey = {
+        preparing: 'toolStatePreparing',
+        running: 'toolStateRunning',
+        failed: 'toolStateFailed',
+        done: 'toolStateDone',
+      }[state]
+      const stateText = t(stateKey)
+      const glyph = toolKindGlyphs[kind] ?? toolKindGlyphs.other
+      const expanded = open || state === 'failed'
+      const bodyBlocks = []
+      if (expanded) {
+        if (rawInputText !== '') {
+          bodyBlocks.push(h('div', { key: 'args', style: { display: 'flex', gap: '6px' } },
+            h('span', { style: { flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, t('toolArguments')),
+            h('pre', {
+              style: {
+                margin: 0, minWidth: 0, fontSize: '11px', lineHeight: '16px',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                color: 'var(--dsw-alias-label-tertiary)',
+              },
+            }, rawInputText)))
+        }
+        if (output !== '') {
+          bodyBlocks.push(h('pre', {
+            key: 'out',
+            style: {
+              margin: 0,
+              padding: '8px 10px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.08))',
+              color: 'var(--dsw-alias-label-secondary)',
+              fontSize: '11px',
+              lineHeight: '16px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              maxHeight: '240px',
+              overflow: 'auto',
+            },
+          }, output))
+        }
+      }
+      const canExpand = output !== '' || rawInputText !== ''
+      return h('div', {
+        'data-tool': 'agy_progress',
+        'data-state': state,
+        style: { display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', minWidth: 0 },
+      },
+      h('button', {
+        type: 'button',
+        onClick: canExpand ? () => setOpen(value => !value) : undefined,
+        'aria-expanded': canExpand ? expanded : undefined,
+        style: {
+          display: 'flex', alignItems: 'baseline', gap: '8px', width: '100%', minWidth: 0,
+          padding: 0, border: 0, background: 'transparent', textAlign: 'left',
+          cursor: canExpand ? 'pointer' : 'default',
+          color: 'var(--dsw-alias-label-primary)',
+          fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+        },
+      },
+      h('span', {
+        'aria-hidden': 'true',
+        style: {
+          flex: 'none',
+          width: '10px',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          color: state === 'failed'
+            ? 'var(--dsw-alias-state-error-primary, #e5484d)'
+            : 'var(--dsw-alias-label-tertiary)',
+        },
+      }, glyph),
+      h('span', {
+        style: {
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+        },
+      }, title === '' ? 'Antigravity tool' : title),
+      summary === undefined ? null : h('span', {
+        style: {
+          flex: 'none', fontSize: '11px',
+          color: 'var(--dsw-alias-label-tertiary)',
+        },
+      }, summary),
+      h('span', {
+        style: {
+          flex: 'none', fontSize: '11px',
+          color: state === 'failed'
+            ? 'var(--dsw-alias-state-error-primary, #e5484d)'
+            : 'var(--dsw-alias-label-tertiary)',
+        },
+      }, stateText),
+      duration === '' ? null : h('span', {
+        style: { flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', fontVariantNumeric: 'tabular-nums' },
+      }, duration),
+      exitCode === undefined ? null : h('span', {
+        style: {
+          flex: 'none', fontSize: '11px', fontVariantNumeric: 'tabular-nums',
+          color: exitCode === 0
+            ? 'var(--dsw-alias-state-success-primary, #46a758)'
+            : 'var(--dsw-alias-state-error-primary, #e5484d)',
+        },
+      }, t('toolExitCode', { code: exitCode })),
+      canExpand ? h('span', {
+        style: { marginLeft: 'auto', flex: 'none', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' },
+      }, expanded ? t('toolCollapse') : t('toolExpand')) : null),
+      typeof path === 'string' && typeof openFile === 'function'
+        ? h('button', {
+          type: 'button',
+          onClick: () => { openFile(path) },
+          style: {
+            alignSelf: 'flex-start',
+            padding: 0,
+            border: 0,
+            background: 'transparent',
+            cursor: 'pointer',
+            fontSize: '11px',
+            color: 'var(--dsw-alias-label-tertiary)',
+            textDecoration: 'underline',
+            textUnderlineOffset: '2px',
+          },
+        }, summary ?? path)
+        : null,
+      ...bodyBlocks)
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -580,18 +773,17 @@ window.__ModuleLoader__.load({
             locale: NAMESPACE,
           }, AutoDelegateConfig)), `@xgone/dsh-subagent-antigravity.config-ui:${packageName}`)
         }
-        ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-          name: 'conversation.session.header.actions',
-          id: 'xgone-antigravity-status',
-          order: 15,
-          locale: NAMESPACE,
-        }, AntigravityStatusAction)), '@xgone/dsh-subagent-antigravity.header-status-ui')
         ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'xgone-antigravity-quota',
           order: 2,
           locale: NAMESPACE,
         }, AgyQuotaDock)), '@xgone/dsh-subagent-antigravity.quota-ui')
+        ctx.effect(() => ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+          name: 'tool.call.toolview',
+          key: 'agy_progress',
+          locale: NAMESPACE,
+        }, AgyProgressRow)), '@xgone/dsh-subagent-antigravity.toolview')
       },
     }
   },

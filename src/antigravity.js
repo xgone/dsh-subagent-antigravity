@@ -21,6 +21,9 @@ import { StringDecoder } from 'node:string_decoder'
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3000
 
+/** Grace window for the CLI to flush a child session after stdin EOF. */
+export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6000
+
 /**
  * Profile-selectable unattended permission posture, mapped to native `agy`
  * flags. These are the only knobs that decide whether the product asks a human
@@ -32,6 +35,18 @@ export const ANTIGRAVITY_PERMISSION_MODES = [
   'auto',
   'dangerously-skip-permissions',
 ]
+
+/**
+ * Read a permission posture that may be a live Config `volatile` accessor.
+ * @param {unknown} value - a posture string or an accessor exposing `get()`.
+ * @returns {string}
+ */
+export function permissionModeValue(value) {
+  if (value !== null && typeof value === 'object' && typeof (/** @type {{get?: () => string}} */ (value).get) === 'function') {
+    return /** @type {{get: () => string}} */ (value).get()
+  }
+  return /** @type {string} */ (value)
+}
 
 /** Default posture: sandbox commands and do not auto-approve operations. */
 export const DEFAULT_ANTIGRAVITY_PERMISSION_MODE = 'default'
@@ -224,6 +239,21 @@ export class NdjsonEventFeed {
   #ended = false
   /** @type {StringDecoder} */
   #decoder = new StringDecoder('utf8')
+  /** @type {((event: {event: string, [key: string]: unknown}) => void) | undefined} */
+  #onEvent
+  /** @type {boolean} */
+  #store
+
+  /**
+   * @param {{onEvent?: (event: {event: string, [key: string]: unknown}) => void, store?: boolean}} [options]
+   *   `onEvent` observes every dispatched event; `store` keeps the event log
+   *   (default true). A long-lived child session disables storage so a
+   *   multi-turn conversation cannot grow without bound.
+   */
+  constructor(options = {}) {
+    this.#onEvent = options.onEvent
+    this.#store = options.store ?? true
+  }
 
   /**
    * Feed a raw stdout chunk (Buffer or string). StringDecoder preserves a
@@ -283,13 +313,19 @@ export class NdjsonEventFeed {
   #dispatch(line) {
     const event = parseEventLine(line)
     if (event === undefined) return
-    this.#events.push(event)
+    if (this.#store) this.#events.push(event)
+    this.#onEvent?.(event)
     const keep = []
     for (const waiter of this.#waiters) {
       if (waiter.type === event.event) waiter.resolve(event)
       else keep.push(waiter)
     }
     this.#waiters = keep
+  }
+
+  /** Whether stdout closed and pending waiters were settled with `eof`. */
+  get ended() {
+    return this.#ended
   }
 
   /** @returns {ReadonlyArray<{event: string, [key: string]: unknown}>} */

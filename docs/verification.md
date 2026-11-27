@@ -7,7 +7,8 @@ because the published record is engineering evidence, not a session transcript.
 ## Protocol and lifecycle checks
 
 - `npm run check` parses every runtime module with `node --check`.
-- `npm test`: 39 tests passed. Coverage includes Agy quota parsing, remaining/reset normalization, cache coalescing and cancellation, optional Connection route registration, the pure protocol helpers (argv construction, stdin event encoding, NDJSON framing, status classification and safe diagnostics), provider lifecycle, Agent-scoped subagent-tool restrictions, manifest peers, and Session status projection.
+- `npm test`: 62 tests passed. Coverage includes Agy quota parsing and cancellation, the pure stream-json mapping (argv, turn encoder, tool kind/title/output, disjoint token accounting, finish reasons), the child-session state machine against a fake CLI (lazy `init`, tool ACTIVE→DONE, persisted conversation resume, interrupted-turn fail-closed, cancellation), the LLM adapter chunk contract, the `agy_progress` proxy, continuable provider wiring, Agent-scoped subagent-tool restrictions, manifest peers, and Session status projection.
+- `node scripts/probe-stream-session.mjs "<task>"` drives one real `agy 1.5.18` turn through session → adapter → progress tool. Observed: a `tool-calls` finish for `printf stream-ok`, the proxy returning the real command output, then streamed text and `finish {kind:'stop'}` with usage.
 - `npm run verify:release` refuses machine-local paths and credential-shaped
   strings in every publishable file.
 
@@ -42,22 +43,29 @@ because the published record is engineering evidence, not a session transcript.
   inherited-tool mask cannot hide.
 - Live check: with the switch on, the parent request's tool list contained
   `subagent_antigravity` and no `subagent`/`subagent_fork`; the Agy child ran,
-  the header indicator appeared, and the completion notice relayed the result.
+  the child appeared under the header's "N 个子智能体" tree, and the completion
+  notice relayed the result.
   With the switch off, `npm test` asserts both built-in names are visible again.
 
-## End-to-end round trip
+## End-to-end round trip (stream-json child Session)
 
-- A clean DSH Profile was created in an isolated harness home containing only
-  the base bundle, the web app bundle, and this bundle.
-- A Session was started through the Web app and a delegation was triggered.
-- The real `agy` CLI ran a read-only shell command, exited `0`, and returned
-  the workspace path plus an explicit completion marker.
-- During the run the Session header showed the Antigravity running indicator
-  and child count; after the completion notice, the indicator cleared and the
-  parent turns relayed the child result.
-- The parent model in that round trip was a deterministic local stub, so the
-  test isolates provider behavior from model quality. The child process and
-  the Session/status path were real.
+- An isolated Profile (`agy-stream-test`) was created from the shipped web
+  template and contained only the base bundle, the web app bundle and this
+  bundle. It shares the operator's DSH home, so it reuses the real model
+  credentials; it has no remote-auth bundle.
+- A Session was started through the Web app and the model was asked to delegate
+  one task with `subagent_antigravity`.
+- Result: the parent received a child id, then the completion notice; the
+  parent relayed the child's answer (`dsh-ok`) and did not run the command
+  itself. The child appeared in the header tree as `1 个子智能体` → a
+  continuable child ("可继续") with 14.6K child tokens.
+- The child Session log shows the exact bridge: step 1 is an assistant
+  `agy_progress` tool-call (`callId s2`, title `printf dsh-ok`, kind `execute`,
+  `rawInput {CommandLine:"printf dsh-ok"}`); its tool result is the CLI's real
+  tool output (`Created At … Command output:\ndsh-ok`); step 2 is the assistant
+  text `dsh-ok` with mapped usage; `turn/end` is `completed`.
+- Opened from the header tree, the child transcript renders the task prompt and
+  the streamed answer; the DSH step summary reads `1 轮 2 步`.
 
 ## Agy quota indicator
 
@@ -79,13 +87,74 @@ because the published record is engineering evidence, not a session transcript.
   hard-coded ContextMeter at the row end. The click panel anchors its bottom
   edge above the pill (translateY(-100%)) with a space-derived max height, so a
   taller rendered panel cannot overlap the dock.
-- Automated checks passed: 39 tests, `npm run check`, and
+- Automated checks passed: `npm test`, `npm run check`, and
   `npm run verify:release`. Plugin Manager returned `restart-required` after the
   package was linked from its local directory. A live Slot query now shows the
   `xgone-antigravity-quota` entry at order 2, but the browser page is at the
   login screen and the Host quota response has not been exercised in this
   runtime. Restart DSH and authenticate before claiming a rendered/data-path
   verification.
+
+## Child-session progress rows in the web UI
+
+- First observation: the child transcript rendered each Antigravity step as a
+  bare `工具调用 · agy_progress · s2` row. Cause: the web client classifies tool
+  names against its own built-in map (`classifyTool` → `TOOL_VARIANTS`) and has
+  no use for Host-side `presentCall`; an unknown name falls back to the generic
+  row, so command and output were invisible.
+- Fix: the plugin registers a keyed client tool view
+  (`tool.call.toolview`, key `agy_progress`) that renders the command, its state
+  (`preparing`/`running`/`done`/`failed`) and the CLI's real output in an
+  expandable block (auto-expanded on failure).
+- Verified in the isolated profile: expanding `已完成 → 已调用工具` now shows
+  `▸ printf UI-CARD-OK  done  show output`, and expanding shows the CLI's own
+  `Created At … Command output: UI-CARD-OK`.
+- Remainder: DSH still groups a finished turn and its tool calls into two
+  collapse levels; the row itself is now informative but the transcript needs
+  those expansions.
+- Second pass added the row's native-like detail: kind glyph, duration, exit
+  code, an openable workspace path (via the tool view's `openFile`), and the raw
+  arguments in the expanded body. Verified in the isolated profile with a
+  `run_command` row (`$ printf ROW2  done  1.6s  exit 0`) and a `read_file` row
+  (path + `. /antigravity-subagent/cordis.patch.yml` link).
+- Continuation verified end to end: after the child settled, a new message in
+  the child session answered `ROW2` from the earlier turn — the CLI process had
+  already exited, so this exercised the `--conversation` resume path. The child's
+  Trajectory tab showed both turns and all four steps.
+
+## Narrow-viewport quota reading
+
+- The composer dock is shared by desktop and phone layouts. With the full
+  per-window reading the pill competed with the host's own truncated stats at
+  390 px.
+- Fix: a `matchMedia('(max-width: 480px)')` listener switches the pill to one
+  tightest-remaining value (`Agy·99%`); the full reading stays in `aria-label`,
+  the hover title and the panel.
+- Verified under a 390×844 mobile emulation: pill text `Agy·99%`, full
+  `aria-label` retained, panel opened at width 240 anchored above the pill
+  inside the viewport; at 1280 px the pill still reads
+  `Agy 额度 周 99% · 5 小时 100%`.
+
+## Quota probe must never open a login window
+
+- Reported: with `agy` signed out, the composer quota probe repeatedly opened
+  the Google OAuth page, because `agy --print /usage` starts an interactive
+  login (`open <accounts.google.com…>`) when it has no credentials, and the
+  browser requested the route on a one-minute interval.
+- Reproduced with a scrubbed `HOME` and a stubbed `open`: the CLI invoked the
+  opener and then printed `Authentication required` to stderr (JSON stdout:
+  `status: ERROR`, `error: authentication failed or timed out`, exit 1).
+- No CLI knob disables it: `AGY_CLI_NONINTERACTIVE_HEADLESS`, `CI`, `BROWSER`,
+  and unknown `--settings` keys either still opened the browser or were
+  rejected.
+- Fix, three parts: (1) the probe process gets a private PATH whose
+  `open`/`xdg-open`/`sensible-browser`/`x-www-browser` shims exit immediately,
+  so a desktop window can never appear; (2) stderr is polled at 200 ms so the
+  stable `auth` state is reported and the process torn down immediately; (3)
+  an `auth` result is cached for ten minutes and the pill says the user must
+  sign in from a terminal.
+- Verified with a real CLI and a scrubbed home: `reason: auth` in 210 ms,
+  **zero opener invocations**.
 
 ## What this record does not claim
 

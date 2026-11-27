@@ -1,6 +1,6 @@
 {
   "name": "@xgone/dsh-subagent-antigravity",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Antigravity CLI (agy) subagent with a real DSH child Session, live CLI tool progress and an account quota indicator",
   "type": "module",
   "main": "src/index.js",

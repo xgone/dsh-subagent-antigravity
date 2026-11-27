@@ -47,6 +47,11 @@ function createOpenerNeutralizer() {
   }
 }
 
+/** Resolve an option that may be a plain value or a live getter. */
+function resolveOption(value, fallback) {
+  return typeof value === 'function' ? value() : (value ?? fallback)
+}
+
 function fetchedAt(now) {
   return new Date(now()).toISOString()
 }
@@ -214,11 +219,12 @@ export function createAgyQuotaReader({
   if (subprocess === null || typeof subprocess?.resolveExecutable !== 'function' || typeof subprocess?.spawn !== 'function') {
     throw new TypeError('subagent-antigravity: Agy quota requires the DSH subprocess service')
   }
-  if (typeof command !== 'string' || command.length === 0) throw new TypeError('subagent-antigravity: Agy quota command is empty')
+  const commandUsable = typeof command === 'function'
+    || (typeof command === 'string' && command.length > 0)
+  if (!commandUsable) throw new TypeError('subagent-antigravity: Agy quota command is empty')
   if (typeof cwd !== 'string' || cwd.length === 0) throw new TypeError('subagent-antigravity: Agy quota working directory is empty')
 
   const openerNeutralizer = createOpenerNeutralizer()
-  const probeEnv = openerNeutralizer === undefined ? env : openerNeutralizer.env(env)
   const lifetime = new AbortController()
   let cached
   let cacheUntil = 0
@@ -231,7 +237,19 @@ export function createAgyQuotaReader({
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
     const signal = AbortSignal.any([lifetime.signal, controller.signal, timeoutSignal])
     const flight = { controller, timeoutSignal, readers: 0, settled: false, promise: undefined }
-    flight.promise = runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signal, timeoutSignal, now })
+    // Options may be live Config accessors, so resolve them per probe.
+    const queryEnv = resolveOption(env, {})
+    const queryProbeEnv = openerNeutralizer === undefined ? queryEnv : openerNeutralizer.env(queryEnv)
+    flight.promise = runAgyQuotaQuery({
+      subprocess,
+      command: resolveOption(command),
+      env: queryEnv,
+      probeEnv: queryProbeEnv,
+      cwd,
+      signal,
+      timeoutSignal,
+      now,
+    })
       .then((snapshot) => {
         if (signal.aborted) return snapshot
         if (snapshot.status === 'ready') {

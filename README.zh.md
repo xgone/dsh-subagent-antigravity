@@ -57,30 +57,25 @@ dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 
 ## 配置
 
-打开 **Plugins → Installed plugins → Antigravity 子智能体**，点击**配置**，这里可以直接改两项：
+打开 **Plugins → Installed plugins → Antigravity 子智能体**，点击**配置**，所有部署配置项都能在这里改，不需要手写 YAML：
 
 - **自动将新任务交给 Antigravity** —— 开启后，DSH 会隐藏内置本地子智能体工具，并提示模型把每条新任务交给 Antigravity，再转交结果。主模型仍可直接回答或使用其他工具。
 - **Antigravity 权限模式** —— 无人值守会话在不询问你的情况下能做多少事。默认 `default` 使用沙箱且不会自动批准；需要自动允许工作区文件编辑时可选 `accept-edits`。`dangerously-skip-permissions` 会跳过全部审批与沙箱，只在完全信任的任务和目录里使用。
+- **高级设置** —— `agy` 可执行文件、模型标识、推理强度、自定义 agent、环境变量（可增删行）以及两级退出宽限。
 
-其余配置写在 Profile 的 `cordis.patch.yml` 里：
-
-```yaml
-- id: subagent-antigravity
-  name: '@xgone/dsh-subagent-antigravity'
-  config:
-    command: /path/to/agy        # 仅当 agy 不在 PATH 上时需要
-    model: gemini-4-neon-high    # 可选，见下文
-    effort: high                 # 可选
-```
+保存写的是 Profile 里同一个配置行（与 `cordis.patch.yml` 等价），并对**之后启动**的 Antigravity 子会话生效：不会重启插件，也不会打断正在运行的委派。Profile YAML 仍可用于自动化；provider 名称与 bundle 的工具行绑定，表单里只做只读展示。
 
 | 配置项 | 作用 | 默认 |
 |---|---|---|
 | `command` | `agy` 可执行文件位置 | 从 `PATH` 找 `agy` |
 | `model` | 该 Profile 所有任务使用的 Antigravity 模型 | 沿用 Antigravity 自身设置 |
 | `effort` | 推理强度（模型支持等级时） | 沿用 Antigravity 自身设置 |
+| `agent` | Antigravity 自定义 agent 名称 | 沿用 Antigravity 自身设置 |
 | `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | 自动把每条新任务交给 Antigravity | `false` |
 | `env` | 给子进程的额外环境变量 | `{}` |
+| `disposeEofGraceMs` | stdin EOF 后等待 CLI 刷新的宽限（毫秒） | `6000` |
+| `disposeGraceMs` | 进程终止分级之间的宽限（毫秒） | `3000` |
 
 ### 换用其它模型
 
@@ -134,6 +129,7 @@ DSH 找不到 CLI。装好它，或把 `command` 指向可执行文件。
 - [实现说明](docs/implementation.md) —— 工作原理与设计取舍。
 - [Antigravity CLI 事实](docs/antigravity-cli-facts.md) —— 本插件依据的 CLI 契约。
 - [验证记录](docs/verification.md) —— 实际验证过的内容。
+- [更新记录](CHANGELOG.md) —— 每个版本的用户可见变化。
 
 ## 许可
 

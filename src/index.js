@@ -22,6 +22,7 @@ import {
   DEFAULT_ANTIGRAVITY_PERMISSION_MODE,
   DEFAULT_DISPOSE_EOF_GRACE_MS,
   DEFAULT_DISPOSE_GRACE_MS,
+  volatileValue,
 } from './antigravity.js'
 import { installAutoDelegateRouting } from './enforcement.js'
 import { createAgyQuotaReader } from './agy-quota.js'
@@ -61,8 +62,9 @@ function antigravityStartupFailure(cause) {
 function installAgyQuotaRoute(ctx, config) {
   const quotaReader = createAgyQuotaReader({
     subprocess: ctx.subprocess,
-    command: config.command,
-    env: config.env,
+    // Live accessors: a command-path or env edit applies to the next probe.
+    command: () => volatileValue(config.command),
+    env: () => volatileValue(config.env) ?? {},
     cwd: process.cwd(),
   })
   ctx.effect(() => async () => { await quotaReader.dispose() }, 'subagent-antigravity.agy-quota-reader')
@@ -118,16 +120,19 @@ export const AUTO_DELEGATE_INSTRUCTIONS = [
 
 export const Config = z.object({
   providerName: z.string().min(1).default(DEFAULT_PROVIDER_NAME),
-  command: z.string().min(1).default(DEFAULT_COMMAND),
-  model: z.string().min(1),
-  effort: z.string().min(1),
-  agent: z.string().min(1),
+  // Every field the Plugins form edits must be volatile: a volatile form is the
+  // only one the plugin configuration page can write, and a live accessor means
+  // a change applies to the next child spawn without restarting the plugin.
+  command: z.string().min(1).default(DEFAULT_COMMAND).volatile(),
+  model: z.string().min(1).volatile(),
+  effort: z.string().min(1).volatile(),
+  agent: z.string().min(1).volatile(),
   permissionMode: z.union([...ANTIGRAVITY_PERMISSION_MODES])
     .default(DEFAULT_ANTIGRAVITY_PERMISSION_MODE)
     .volatile(),
-  env: z.dict(z.string()).default({}),
-  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS),
-  disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  env: z.dict(z.string()).default({}).volatile(),
+  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS).volatile(),
+  disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS).volatile(),
   autoDelegate: z.boolean().default(false).volatile(),
 })
 
@@ -177,22 +182,24 @@ export async function apply(ctx, config) {
   /** @type {Required<Omit<Config, 'model'|'effort'|'agent'>> & Pick<Config,'model'|'effort'|'agent'>} */
   const resolved = {
     providerName: config.providerName ?? DEFAULT_PROVIDER_NAME,
-    command: config.command ?? DEFAULT_COMMAND,
-    ...config.model === undefined ? {} : { model: config.model },
-    ...config.effort === undefined ? {} : { effort: config.effort },
-    ...config.agent === undefined ? {} : { agent: config.agent },
+    command: config.command,
+    model: config.model,
+    effort: config.effort,
+    agent: config.agent,
     permissionMode: config.permissionMode,
-    env: config.env ?? {},
-    disposeEofGraceMs: config.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS,
-    disposeGraceMs: config.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
+    env: config.env,
+    disposeEofGraceMs: config.disposeEofGraceMs,
+    disposeGraceMs: config.disposeGraceMs,
     autoDelegate: config.autoDelegate,
   }
-  assertPositiveFinite('subagent-antigravity', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
-  assertPositiveFinite('subagent-antigravity', 'disposeGraceMs', resolved.disposeGraceMs)
-  if (resolved.disposeEofGraceMs > MAX_TIMER_DELAY_MS) {
+  const eofGrace = volatileValue(resolved.disposeEofGraceMs)
+  const disposeGrace = volatileValue(resolved.disposeGraceMs)
+  assertPositiveFinite('subagent-antigravity', 'disposeEofGraceMs', eofGrace)
+  assertPositiveFinite('subagent-antigravity', 'disposeGraceMs', disposeGrace)
+  if (eofGrace > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeEofGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
-  if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
+  if (disposeGrace > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
   installAgyQuotaRoute(ctx, resolved)

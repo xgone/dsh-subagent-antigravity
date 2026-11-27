@@ -133,15 +133,18 @@ test('plugin advertises its identity and injected services', () => {
 test('Config fills documented defaults and omits the optional native overrides', () => {
   const resolved = new Config({})
   assert.equal(resolved.providerName, 'antigravity')
-  assert.equal(resolved.command, 'agy')
+  assert.equal(resolved.command.get(), 'agy')
+  for (const field of ['command', 'model', 'effort', 'agent', 'env', 'disposeEofGraceMs', 'disposeGraceMs']) {
+    assert.equal(typeof resolved[field]?.get, 'function', `${field} must be a volatile accessor`)
+  }
   assert.equal(resolved.permissionMode.get(), 'default')
-  assert.deepEqual(resolved.env, {})
-  assert.equal(resolved.disposeGraceMs, 3000)
-  assert.equal(resolved.disposeEofGraceMs, 6000)
+  assert.deepEqual(resolved.env.get(), {})
+  assert.equal(resolved.disposeGraceMs.get(), 3000)
+  assert.equal(resolved.disposeEofGraceMs.get(), 6000)
   assert.equal(resolved.autoDelegate.get(), false)
-  assert.equal('model' in resolved, false)
-  assert.equal('effort' in resolved, false)
-  assert.equal('agent' in resolved, false)
+  assert.equal(resolved.model.get(), undefined)
+  assert.equal(resolved.effort.get(), undefined)
+  assert.equal(resolved.agent.get(), undefined)
 })
 
 test('Config rejects an unknown permission mode', () => {

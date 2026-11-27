@@ -52,7 +52,34 @@ window.__ModuleLoader__.load({
         permissionAcceptEdits: 'Accept edits — workspace edits are allowed; commands may require approval',
         permissionAuto: 'Auto — sandboxed commands are automatically reviewed where supported',
         permissionDangerous: 'Dangerously skip approvals and the sandbox',
-        dangerousWarning: 'This allows all Antigravity tools without prompts or sandboxing. Use only when you trust the task and workspace.'
+        dangerousWarning: 'This allows all Antigravity tools without prompts or sandboxing. Use only when you trust the task and workspace.',
+        advancedTitle: 'Advanced settings',
+        advancedHelp: 'These edit the same Profile row as cordis.patch.yml. Saving applies to the next Antigravity child; the plugin is not restarted.',
+        providerNameReadonly: 'Provider name: {name} (fixed by the bundle tool row)',
+        commandLabel: 'agy executable',
+        commandHelp: 'Absolute path, or a name resolved through PATH.',
+        modelLabel: 'Model',
+        modelHelp: 'A slug from `agy models`. Leave empty to inherit Antigravity settings.',
+        modelPlaceholder: 'inherit',
+        effortLabel: 'Reasoning effort',
+        effortDefault: 'inherit',
+        effortHelp: 'Availability depends on the model.',
+        agentLabel: 'Custom agent',
+        agentHelp: 'A custom agent name from `agy agents`. Leave empty to inherit.',
+        agentPlaceholder: 'inherit',
+        envLabel: 'Environment variables',
+        envHelp: 'Extra variables for the agy process, layered over the scrubbed Host environment.',
+        envKey: 'Key',
+        envValue: 'Value',
+        envAdd: 'Add variable',
+        envRemove: 'Remove',
+        graceLabel: 'Shutdown grace (ms)',
+        graceEof: 'after stdin EOF',
+        graceTerminate: 'between termination steps',
+        graceHelp: 'How long the CLI may take to flush before it is terminated.',
+        advancedSave: 'Save advanced settings',
+        restartNote: 'Applies to the next child session.',
+        invalidGrace: 'Grace values must be positive whole milliseconds.'
       },
       zh: {
         toggle: '自动将新任务交给 Antigravity',
@@ -87,24 +114,90 @@ window.__ModuleLoader__.load({
         permissionAcceptEdits: 'Accept edits：允许工作区文件编辑；命令仍可能需要审批',
         permissionAuto: 'Auto：在支持的账号上自动审核沙箱命令',
         permissionDangerous: '危险模式：跳过审批与沙箱',
-        dangerousWarning: '此模式会无提示、无沙箱地运行所有 Antigravity 工具。仅在完全信任任务和工作区时使用。'
+        dangerousWarning: '此模式会无提示、无沙箱地运行所有 Antigravity 工具。仅在完全信任任务和工作区时使用。',
+        advancedTitle: '高级设置',
+        advancedHelp: '这些值与 cordis.patch.yml 中同一个 Profile 行等价。保存后对之后启动的 Antigravity 子会话生效，不会重启插件。',
+        providerNameReadonly: 'Provider 名称：{name}（由 bundle 的工具行固定）',
+        commandLabel: 'agy 可执行文件',
+        commandHelp: '绝对路径，或通过 PATH 解析的命令名。',
+        modelLabel: '模型',
+        modelHelp: '取自 `agy models` 的标识。留空表示沿用 Antigravity 自身设置。',
+        modelPlaceholder: '沿用默认',
+        effortLabel: '推理强度',
+        effortDefault: '沿用默认',
+        effortHelp: '可用等级取决于模型。',
+        agentLabel: '自定义 agent',
+        agentHelp: '取自 `agy agents` 的 agent 名称。留空表示沿用默认。',
+        agentPlaceholder: '沿用默认',
+        envLabel: '环境变量',
+        envHelp: '额外传给 agy 进程的变量，叠加在清洗后的 Host 环境之上。',
+        envKey: '名称',
+        envValue: '值',
+        envAdd: '添加变量',
+        envRemove: '删除',
+        graceLabel: '退出宽限（毫秒）',
+        graceEof: 'stdin EOF 后',
+        graceTerminate: '终止分级之间',
+        graceHelp: 'CLI 在被强制终止前允许的最长刷新时间。',
+        advancedSave: '保存高级设置',
+        restartNote: '对之后启动的子会话生效。',
+        invalidGrace: '宽限值必须是正整数毫秒。'
       },
+    }
+
+    const ADVANCED_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+    const advancedFieldStyle = {
+      boxSizing: 'border-box',
+      width: '100%',
+      maxWidth: '560px',
+      padding: '8px 10px',
+      border: '1px solid var(--dsw-alias-border-l2)',
+      borderRadius: '8px',
+      backgroundColor: 'var(--dsw-alias-bg-layer-1)',
+      color: 'var(--dsw-alias-label-primary)',
+    }
+
+    const advancedLabelStyle = {
+      display: 'grid',
+      gap: '6px',
+      color: 'var(--dsw-alias-label-primary)',
+    }
+
+    const advancedHelpStyle = {
+      margin: 0,
+      color: 'var(--dsw-alias-label-secondary)',
+      fontSize: '13px',
+      lineHeight: 1.45,
+    }
+
+    const advancedButtonStyle = {
+      padding: '7px 14px',
+      border: '1px solid var(--dsw-alias-border-l2)',
+      borderRadius: '8px',
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-primary)',
+      cursor: 'pointer',
+      font: 'inherit',
     }
 
     function AutoDelegateConfig(props) {
       const { view, form, t } = props
       const state = form?.state
+      const config = state?.value ?? {}
       const [pending, setPending] = React.useState(false)
       const [draft, setDraft] = React.useState({})
+      const [advancedDraft, setAdvancedDraft] = React.useState(undefined)
       const [feedback, setFeedback] = React.useState('')
 
       React.useEffect(() => {
         setDraft({})
+        setAdvancedDraft(undefined)
         setFeedback('')
-      }, [state?.revision, state?.value?.autoDelegate, state?.value?.permissionMode])
+      }, [state?.revision])
 
-      const enabled = draft.autoDelegate ?? (state?.value?.autoDelegate === true)
-      const permissionMode = draft.permissionMode ?? state?.value?.permissionMode ?? 'default'
+      const enabled = draft.autoDelegate ?? (config.autoDelegate === true)
+      const permissionMode = draft.permissionMode ?? config.permissionMode ?? 'default'
       if (view === 'summary') {
         return h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } },
           t(enabled ? 'summaryOn' : 'summaryOff'))
@@ -122,19 +215,16 @@ window.__ModuleLoader__.load({
         }, t('loading'))
       }
 
-      const checked = enabled
       const disabled = pending || !state.writable || state.revision === undefined
-      const saveField = (field, value) => {
-        setDraft(current => ({ ...current, [field]: value }))
+      const runMutation = (ops) => {
         setPending(true)
         setFeedback('')
-        Promise.resolve()
-          .then(() => form.mutate([
-            { op: 'set', path: [field], value },
-          ], state.revision))
+        return Promise.resolve()
+          .then(() => form.mutate(ops, state.revision))
           .then((accepted) => {
             if (!accepted) {
               setDraft({})
+              setAdvancedDraft(undefined)
               setFeedback('failed')
             } else {
               setFeedback('saved')
@@ -142,16 +232,106 @@ window.__ModuleLoader__.load({
           })
           .catch(() => {
             setDraft({})
+            setAdvancedDraft(undefined)
             setFeedback('failed')
           })
           .finally(() => { setPending(false) })
       }
+      const saveField = (field, value) => {
+        setDraft(current => ({ ...current, [field]: value }))
+        return runMutation([{ op: 'set', path: [field], value }])
+      }
       const onChange = (event) => {
-        saveField('autoDelegate', Boolean(event.currentTarget.checked))
+        void saveField('autoDelegate', Boolean(event.currentTarget.checked))
       }
       const onPermissionModeChange = (event) => {
-        saveField('permissionMode', event.currentTarget.value)
+        void saveField('permissionMode', event.currentTarget.value)
       }
+
+      // Host values remain authoritative; drafts only hold unsaved edits.
+      const current = (key) => (
+        advancedDraft !== undefined && Object.hasOwn(advancedDraft, key)
+          ? advancedDraft[key]
+          : config[key]
+      )
+      const setAdvancedField = (key, value) => {
+        setAdvancedDraft(currentDraft => ({ ...(currentDraft ?? {}), [key]: value }))
+      }
+      const envRows = advancedDraft?.envRows ?? Object.entries(config.env ?? {})
+        .map(([key, value]) => ({ key, value: String(value) }))
+      const setEnvRows = (rows) => {
+        setAdvancedDraft(currentDraft => ({ ...(currentDraft ?? {}), envRows: rows }))
+      }
+      const textValue = (key) => {
+        const value = current(key)
+        return typeof value === 'string' ? value : ''
+      }
+      const graceValue = (key) => {
+        const value = current(key)
+        return typeof value === 'number' || typeof value === 'string' ? String(value) : ''
+      }
+
+      const saveAdvanced = () => {
+        const ops = []
+        const command = textValue('command').trim()
+        if (command === '') {
+          if (config.command !== undefined) ops.push({ op: 'unset', path: ['command'] })
+        } else if (command !== config.command) {
+          ops.push({ op: 'set', path: ['command'], value: command })
+        }
+        for (const key of ['model', 'effort', 'agent']) {
+          const value = textValue(key).trim()
+          if (value === '') {
+            if (config[key] !== undefined) ops.push({ op: 'unset', path: [key] })
+          } else if (value !== config[key]) {
+            ops.push({ op: 'set', path: [key], value })
+          }
+        }
+        const env = {}
+        for (const row of envRows) {
+          const key = typeof row.key === 'string' ? row.key.trim() : ''
+          if (key === '') continue
+          env[key] = typeof row.value === 'string' ? row.value : ''
+        }
+        if (JSON.stringify(env) !== JSON.stringify(config.env ?? {})) {
+          ops.push(Object.keys(env).length === 0
+            ? { op: 'unset', path: ['env'] }
+            : { op: 'set', path: ['env'], value: env })
+        }
+        for (const key of ['disposeEofGraceMs', 'disposeGraceMs']) {
+          const raw = current(key)
+          const text = typeof raw === 'number' ? String(raw) : String(raw ?? '').trim()
+          if (text === '') {
+            if (config[key] !== undefined) ops.push({ op: 'unset', path: [key] })
+            continue
+          }
+          const value = Number(text)
+          if (!Number.isInteger(value) || value <= 0) {
+            setFeedback('invalidGrace')
+            return
+          }
+          if (value !== config[key]) ops.push({ op: 'set', path: [key], value })
+        }
+        if (ops.length === 0) {
+          setFeedback('saved')
+          return
+        }
+        void runMutation(ops)
+      }
+
+      const textField = (key, labelKey, helpKey, placeholder) => h('label', { style: advancedLabelStyle },
+        h('span', null, t(labelKey)),
+        h('input', {
+          type: 'text',
+          value: textValue(key),
+          placeholder: placeholder ?? '',
+          disabled,
+          'aria-label': t(labelKey),
+          onChange: event => { setAdvancedField(key, event.currentTarget.value) },
+          style: advancedFieldStyle,
+          maxLength: 400,
+        }),
+        h('span', { style: advancedHelpStyle }, t(helpKey)))
 
       return h('div', {
         'aria-busy': pending,
@@ -169,7 +349,7 @@ window.__ModuleLoader__.load({
       h('input', {
         type: 'checkbox',
         role: 'switch',
-        checked,
+        checked: enabled,
         disabled,
         'aria-label': t('toggle'),
         onChange,
@@ -181,56 +361,136 @@ window.__ModuleLoader__.load({
         },
       }),
       h('span', null, t('toggle'))),
-      h('p', {
-        style: {
-          margin: 0,
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '13px',
-          lineHeight: 1.45,
+      h('p', { style: advancedHelpStyle }, t('help')),
+      h('label', { style: advancedLabelStyle },
+        h('span', null, t('permissionMode')),
+        h('select', {
+          value: permissionMode,
+          disabled,
+          onChange: onPermissionModeChange,
+          'aria-label': t('permissionMode'),
+          style: advancedFieldStyle,
         },
-      }, t('help')),
-      h('label', {
-        style: {
-          display: 'grid',
-          gap: '6px',
-          color: 'var(--dsw-alias-label-primary)',
-        },
-      },
-      h('span', null, t('permissionMode')),
-      h('select', {
-        value: permissionMode,
-        disabled,
-        onChange: onPermissionModeChange,
-        'aria-label': t('permissionMode'),
-        style: {
-          boxSizing: 'border-box',
-          width: '100%',
-          maxWidth: '560px',
-          padding: '8px 10px',
-          border: '1px solid var(--dsw-alias-border-l2)',
-          borderRadius: '8px',
-          backgroundColor: 'var(--dsw-alias-bg-layer-1)',
-          color: 'var(--dsw-alias-label-primary)',
-        },
-      },
-      h('option', { value: 'default' }, t('permissionDefault')),
-      h('option', { value: 'accept-edits' }, t('permissionAcceptEdits')),
-      h('option', { value: 'auto' }, t('permissionAuto')),
-      h('option', { value: 'dangerously-skip-permissions' }, t('permissionDangerous')))),
-      h('p', {
-        style: {
-          margin: 0,
-          color: 'var(--dsw-alias-label-secondary)',
-          fontSize: '13px',
-          lineHeight: 1.45,
-        },
-      }, t('permissionModeHelp')),
+        h('option', { value: 'default' }, t('permissionDefault')),
+        h('option', { value: 'accept-edits' }, t('permissionAcceptEdits')),
+        h('option', { value: 'auto' }, t('permissionAuto')),
+        h('option', { value: 'dangerously-skip-permissions' }, t('permissionDangerous')))),
+      h('p', { style: advancedHelpStyle }, t('permissionModeHelp')),
       permissionMode === 'dangerously-skip-permissions'
         ? h('p', {
           role: 'alert',
           style: { margin: 0, color: 'var(--dsw-alias-state-warn-primary)' },
         }, t('dangerousWarning'))
         : null,
+
+      h('hr', {
+        style: { border: 0, borderTop: '1px solid var(--dsw-alias-border-l2)', margin: '8px 0' },
+      }),
+      h('h4', { style: { margin: 0, color: 'var(--dsw-alias-label-primary)' } }, t('advancedTitle')),
+      h('p', { style: advancedHelpStyle }, t('advancedHelp')),
+      h('p', {
+        style: { margin: 0, color: 'var(--dsw-alias-label-tertiary)', fontSize: '13px' },
+      }, t('providerNameReadonly', { name: typeof config.providerName === 'string' ? config.providerName : 'antigravity' })),
+      textField('command', 'commandLabel', 'commandHelp'),
+      textField('model', 'modelLabel', 'modelHelp', t('modelPlaceholder')),
+      h('label', { style: advancedLabelStyle },
+        h('span', null, t('effortLabel')),
+        h('select', {
+          value: textValue('effort'),
+          disabled,
+          'aria-label': t('effortLabel'),
+          onChange: event => { setAdvancedField('effort', event.currentTarget.value) },
+          style: advancedFieldStyle,
+        },
+        h('option', { value: '' }, t('effortDefault')),
+        ...ADVANCED_EFFORTS.map(level => h('option', { key: level, value: level }, level))),
+        h('span', { style: advancedHelpStyle }, t('effortHelp'))),
+      textField('agent', 'agentLabel', 'agentHelp', t('agentPlaceholder')),
+
+      h('div', { style: { display: 'grid', gap: '6px' } },
+        h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, t('envLabel')),
+        ...envRows.map((row, index) => h('div', {
+          key: index,
+          style: { display: 'flex', gap: '6px', maxWidth: '560px' },
+        },
+        h('input', {
+          type: 'text',
+          value: row.key,
+          placeholder: t('envKey'),
+          disabled,
+          'aria-label': t('envKey'),
+          onChange: event => {
+            const rows = [...envRows]
+            rows[index] = { ...row, key: event.currentTarget.value }
+            setEnvRows(rows)
+          },
+          style: { ...advancedFieldStyle, flex: '1 1 40%' },
+        }),
+        h('input', {
+          type: 'text',
+          value: row.value,
+          placeholder: t('envValue'),
+          disabled,
+          'aria-label': t('envValue'),
+          onChange: event => {
+            const rows = [...envRows]
+            rows[index] = { ...row, value: event.currentTarget.value }
+            setEnvRows(rows)
+          },
+          style: { ...advancedFieldStyle, flex: '1 1 60%' },
+        }),
+        h('button', {
+          type: 'button',
+          disabled,
+          onClick: () => { setEnvRows(envRows.filter((_item, position) => position !== index)) },
+          style: { ...advancedButtonStyle, flex: '0 0 auto' },
+        }, t('envRemove')))),
+        h('button', {
+          type: 'button',
+          disabled,
+          onClick: () => { setEnvRows([...envRows, { key: '', value: '' }]) },
+          style: { ...advancedButtonStyle, justifySelf: 'start' },
+        }, t('envAdd')),
+        h('span', { style: advancedHelpStyle }, t('envHelp'))),
+
+      h('div', { style: { display: 'grid', gap: '6px', maxWidth: '560px' } },
+        h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, t('graceLabel')),
+        h('div', { style: { display: 'flex', gap: '10px' } },
+          h('label', { style: { ...advancedLabelStyle, flex: '1 1 0' } },
+            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, t('graceEof')),
+            h('input', {
+              type: 'number',
+              min: 1,
+              step: 1,
+              value: graceValue('disposeEofGraceMs'),
+              disabled,
+              'aria-label': t('graceEof'),
+              onChange: event => { setAdvancedField('disposeEofGraceMs', event.currentTarget.value) },
+              style: advancedFieldStyle,
+            })),
+          h('label', { style: { ...advancedLabelStyle, flex: '1 1 0' } },
+            h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, t('graceTerminate')),
+            h('input', {
+              type: 'number',
+              min: 1,
+              step: 1,
+              value: graceValue('disposeGraceMs'),
+              disabled,
+              'aria-label': t('graceTerminate'),
+              onChange: event => { setAdvancedField('disposeGraceMs', event.currentTarget.value) },
+              style: advancedFieldStyle,
+            }))),
+        h('span', { style: advancedHelpStyle }, t('graceHelp'))),
+
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
+        h('button', {
+          type: 'button',
+          disabled,
+          onClick: saveAdvanced,
+          style: advancedButtonStyle,
+        }, t('advancedSave')),
+        h('span', { style: advancedHelpStyle }, t('restartNote'))),
+
       !state.writable
         ? h('p', {
           role: 'status',
@@ -240,10 +500,10 @@ window.__ModuleLoader__.load({
       pending
         ? h('p', { role: 'status', style: { margin: 0 } }, t('saving'))
         : feedback === '' ? null : h('p', {
-          role: feedback === 'failed' ? 'alert' : 'status',
+          role: feedback === 'failed' || feedback === 'invalidGrace' ? 'alert' : 'status',
           style: {
             margin: 0,
-            color: feedback === 'failed'
+            color: feedback === 'failed' || feedback === 'invalidGrace'
               ? 'var(--dsw-alias-state-error-primary)'
               : 'var(--dsw-alias-label-secondary)',
           },

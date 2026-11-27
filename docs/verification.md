@@ -156,6 +156,21 @@ because the published record is engineering evidence, not a session transcript.
 - Verified with a real CLI and a scrubbed home: `reason: auth` in 210 ms,
   **zero opener invocations**.
 
+## Plugins-form configuration coverage
+
+- The Config page (`plugins.row.config`) only exposes volatile fields: the Host
+  throws `Config field "…" is not volatile` for anything else, and the form's
+  value snapshot omits non-volatile keys. That is why `command`/`model`/`effort`/
+  `agent`/`env` never appeared in the form before.
+- Fix: those fields plus both shutdown graces are `volatile()` in the schema,
+  and the running plugin resolves them through `volatileValue()` at the spawn /
+  probe / teardown use point.
+- Verified in the isolated profile: the form now shows
+  `agy 可执行文件 = /Users/…/.local/bin/agy`, `stdin EOF 后 = 6000`,
+  `终止分级之间 = 3000`; setting 推理强度 to `high` and saving reported `已保存`,
+  wrote `effort: high` into the profile's `cordis.patch.yml`, and the entry kept
+  running (no restart).
+
 ## What this record does not claim
 
 - It does not benchmark Antigravity model quality or compare models.

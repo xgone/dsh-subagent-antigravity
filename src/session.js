@@ -16,7 +16,7 @@
  * @module @xgone/dsh-subagent-antigravity/session
  */
 
-import { NdjsonEventFeed, permissionModeValue } from './antigravity.js'
+import { NdjsonEventFeed, permissionModeValue, volatileValue } from './antigravity.js'
 import {
   buildStreamArgv,
   conversationIdOf,
@@ -212,21 +212,29 @@ export class StreamJsonChildSession {
     }
     if (typeof previous?.conversationId === 'string') this.conversationId = previous.conversationId
     if (typeof previous?.lastDshMessageId === 'string') this.lastPromptMessageId = previous.lastDshMessageId
+    const command = volatileValue(this.config.command)
+    const env = volatileValue(this.config.env) ?? {}
     const executable = await awaitWithSignal(
-      this.ctx.subprocess.resolveExecutable(this.config.command, this.config.env),
+      this.ctx.subprocess.resolveExecutable(command, env),
       signal,
     )
     throwIfAborted(signal)
     this.process = this.ctx.subprocess.spawn({
       argv: buildStreamArgv(
         executable,
-        { ...this.config, permissionMode: permissionModeValue(this.config.permissionMode) },
+        {
+          command: volatileValue(this.config.command),
+          model: volatileValue(this.config.model),
+          effort: volatileValue(this.config.effort),
+          agent: volatileValue(this.config.agent),
+          permissionMode: permissionModeValue(this.config.permissionMode),
+        },
         previous?.conversationId,
       ),
       cwd: this.cwd,
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
-      graceMs: this.config.disposeGraceMs,
-      env: this.config.env,
+      graceMs: volatileValue(this.config.disposeGraceMs),
+      env,
     })
     if (this.process.stdin === undefined || this.process.stdout === undefined) {
       await this.dispose()
@@ -539,7 +547,7 @@ export class StreamJsonChildSession {
     try { this.process?.stdin?.end() } catch { /* stdin may already be closed */ }
     let exited = this.process === undefined
     if (!exited) {
-      const eofGrace = Number(this.config.disposeEofGraceMs)
+      const eofGrace = Number(volatileValue(this.config.disposeEofGraceMs))
       const bounded = Number.isFinite(eofGrace) && eofGrace > 0 ? eofGrace : 6000
       try {
         exited = await this.process.waitForExit(AbortSignal.timeout(Math.ceil(bounded)))

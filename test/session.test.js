@@ -85,9 +85,13 @@ function makeSession(options = {}) {
   const children = []
   const spawns = []
   const table = makeTable(options.records ?? {})
+  const resolvedExecutables = []
   const ctx = {
     subprocess: {
-      async resolveExecutable(command) { return `/fake/${command}` },
+      async resolveExecutable(command, env) {
+        resolvedExecutables.push({ command, env })
+        return command.startsWith('/') ? command : `/fake/${command}`
+      },
       spawn(spec) {
         spawns.push(spec)
         const child = makeFakeChild(options)
@@ -106,7 +110,7 @@ function makeSession(options = {}) {
     ...options.config,
   }
   const session = new StreamJsonChildSession(ctx, agent, config, { table: () => table })
-  return { session, spawns, table, children }
+  return { session, spawns, table, children, resolvedExecutables }
 }
 
 async function nextEvent(session, signal) {
@@ -159,6 +163,35 @@ test('a live Config permission accessor is resolved when the CLI is spawned', as
   const { session, spawns } = makeSession({ config: { permissionMode: { get: () => 'accept-edits' } } })
   await session.open()
   assert.deepEqual(spawns[0].argv.slice(-2), ['--mode=accept-edits', '--sandbox'])
+  await session.dispose()
+})
+
+test('live Config accessors reach the spawn as current values', async () => {
+  const { session, spawns, resolvedExecutables } = makeSession({
+    config: {
+      command: { get: () => '/opt/agy/bin/agy' },
+      model: { get: () => 'gemini-4-neon-high' },
+      effort: { get: () => 'high' },
+      agent: { get: () => 'reviewer' },
+      env: { get: () => ({ AGY_CUSTOM: '1' }) },
+      permissionMode: { get: () => 'dangerously-skip-permissions' },
+      disposeGraceMs: { get: () => 500 },
+      disposeEofGraceMs: { get: () => 500 },
+    },
+  })
+  await session.open()
+  assert.deepEqual(resolvedExecutables[0], {
+    command: '/opt/agy/bin/agy',
+    env: { AGY_CUSTOM: '1' },
+  })
+  assert.equal(spawns[0].argv[0], '/opt/agy/bin/agy')
+  assert.deepEqual(spawns[0].env, { AGY_CUSTOM: '1' })
+  const argv = spawns[0].argv
+  assert.equal(argv.includes('--dangerously-skip-permissions'), true)
+  assert.deepEqual(argv.slice(argv.indexOf('--model'), argv.indexOf('--model') + 4), [
+    '--model', 'gemini-4-neon-high', '--effort', 'high',
+  ])
+  assert.deepEqual(argv.slice(argv.indexOf('--agent'), argv.indexOf('--agent') + 2), ['--agent', 'reviewer'])
   await session.dispose()
 })
 

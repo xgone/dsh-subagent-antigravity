@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const bundlePatch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const clientSource = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
+const indexSource = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8')
 
 test('manifest declares runtime peers used by the provider and patch', () => {
   const peers = packageJson.peerDependencies
@@ -33,6 +34,7 @@ test('manifest declares runtime peers used by the provider and patch', () => {
   assert.ok(packageJson.files.includes('src'))
   assert.ok(packageJson.files.includes('locale/*.json'))
   assert.ok(packageJson.files.includes('icon.svg'))
+  assert.ok(packageJson.files.includes('CHANGELOG.md'))
 })
 
 test('Agy quota status registers as an additive composer dock entry', () => {
@@ -55,10 +57,32 @@ test('Agy quota status registers as an additive composer dock entry', () => {
   assert.match(clientSource, /name: 'tool\.call\.toolview'/u)
   assert.match(clientSource, /key: 'agy_progress'/u)
   assert.match(clientSource, /quotaSignIn/u)
+  // The Plugins form must cover every deployment setting, not just two.
+  assert.match(clientSource, /advancedTitle/u)
+  assert.match(clientSource, /commandLabel|agy 可执行文件/u)
+  assert.match(clientSource, /envAdd/u)
+  assert.match(clientSource, /graceEof/u)
+  assert.match(clientSource, /'disposeEofGraceMs'|'disposeGraceMs'/u)
   // Narrow viewports collapse the quota reading to one tight percentage.
   assert.match(clientSource, /quotaMobile: 'Agy·\{percent\}%'/u)
   assert.match(clientSource, /NARROW_QUERY = '\(max-width: 480px\)'/u)
   assert.match(clientSource, /window\.matchMedia\(NARROW_QUERY\)/u)
+})
+
+test('every form-editable Config field is volatile', () => {
+  for (const field of [
+    'command: z.string().min(1).default(DEFAULT_COMMAND).volatile()',
+    'model: z.string().min(1).volatile()',
+    'effort: z.string().min(1).volatile()',
+    'agent: z.string().min(1).volatile()',
+    'env: z.dict(z.string()).default({}).volatile()',
+    'disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS).volatile()',
+    'disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS).volatile()',
+    'permissionMode: z.union([...ANTIGRAVITY_PERMISSION_MODES])',
+    'autoDelegate: z.boolean().default(false).volatile()',
+  ]) {
+    assert.ok(indexSource.includes(field), `missing volatile declaration: ${field}`)
+  }
 })
 
 test('bundle patch pins the child Agent route to the CLI adapter', () => {

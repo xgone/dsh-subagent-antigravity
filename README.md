@@ -57,30 +57,25 @@ Restart DSH if the installer asks you to. The quota pill starts a brief local `a
 
 ## Configure
 
-Open **Plugins → Installed plugins → Antigravity 子智能体** and click **Configure**. Two things are editable there:
+Open **Plugins → Installed plugins → Antigravity 子智能体** and click **Configure**. Every deployment setting is editable there — no YAML editing required:
 
 - **Automatically delegate new tasks to Antigravity** — when on, DSH hides its built-in subagent tools and asks the model to send each new task to Antigravity, then relays the answer. The model may still answer directly or use other tools.
 - **Antigravity permission mode** — how much the unattended session may do without asking you. The default `default` mode keeps command execution sandboxed and does not auto-approve actions. Choose `accept-edits` when workspace edits should be automatic; `dangerously-skip-permissions` runs everything without approvals or sandboxing and should only be used for workspaces you fully trust.
+- **Advanced settings** — the `agy` executable, model slug, reasoning effort, custom agent, environment variables (add/remove rows) and the two shutdown graces.
 
-Everything else is set per Profile in `cordis.patch.yml`:
-
-```yaml
-- id: subagent-antigravity
-  name: '@xgone/dsh-subagent-antigravity'
-  config:
-    command: /path/to/agy        # only needed if agy is not on PATH
-    model: gemini-4-neon-high    # optional, see below
-    effort: high                 # optional
-```
+Saving writes the same Profile row as `cordis.patch.yml` and takes effect for the next Antigravity child: the plugin is not restarted and a running delegation is not cancelled. The Profile YAML stays supported for automation and for the provider name, which is bound to the bundle's tool row and is shown read-only in the form.
 
 | Setting | What it does | Default |
 |---|---|---|
 | `command` | Where the `agy` executable lives | `agy` from `PATH` |
 | `model` | Antigravity model for every task from this Profile | Antigravity's own setting |
 | `effort` | Reasoning effort, if the model supports levels | Antigravity's own setting |
+| `agent` | Antigravity custom agent name | Antigravity's own setting |
 | `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | Send every new task to Antigravity automatically | `false` |
 | `env` | Extra environment for the child process | `{}` |
+| `disposeEofGraceMs` | Grace for the CLI to flush after stdin EOF | `6000` |
+| `disposeGraceMs` | Grace between process termination steps | `3000` |
 
 ### Use a different model
 
@@ -136,6 +131,7 @@ There is no separate Antigravity badge: the Session header's "N 个子智能体"
 - [Implementation notes](docs/implementation.md) — how it works, and why.
 - [Antigravity CLI facts](docs/antigravity-cli-facts.md) — the exact CLI contract this is built against.
 - [Verification record](docs/verification.md) — what has actually been tested.
+- [Changelog](CHANGELOG.md) — user-visible changes per version.
 
 ## License
 

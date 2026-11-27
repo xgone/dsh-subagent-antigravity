@@ -2,7 +2,11 @@
 
 用户指南见 [README](README.md)；实现细节见 [docs/implementation.md](docs/implementation.md)；已实测的内容见 [docs/verification.md](docs/verification.md)。版本号遵循语义化版本，每条只记录对使用者可见的变化。
 
-## 0.2.2（未发布）
+## 未发布
+
+- 文档：README 的「Agy 账号额度」压缩为简述，并新增「工作原理与账号风险」一节，明确本插件是对官方 `agy` CLI 的薄封装，同时提示自动化驱动 CLI 可能带来的限流/封号风险。
+
+## 0.2.2 (2026-11-27)
 
 - **「插件 → 已安装插件 → Antigravity 子智能体 → 配置」现在能改全部配置项**，不必再手写 `cordis.patch.yml`：`command`（agy 可执行文件）、`model`、`effort`、`agent`、`env`（键值行可增删）、`disposeEofGraceMs`、`disposeGraceMs`，与原有的「自动委派」开关和权限模式并列。
 - 这些字段在 Config 中改为 `volatile`：保存写入的是 Profile 里同一配置行，并在**下一次**启动 Antigravity 子会话时生效——不重启插件，也不打断正在运行的委派。额度探测和子进程启动都在使用点读取实时值。

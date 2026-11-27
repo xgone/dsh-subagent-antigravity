@@ -1,6 +1,6 @@
 {
   "name": "@xgone/dsh-subagent-antigravity",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Antigravity CLI (agy) subagent with a real DSH child Session, live CLI tool progress and an account quota indicator",
   "type": "module",
   "main": "src/index.js",
@@ -21,6 +21,7 @@
     "docs",
     "scripts",
     "test",
+    "CHANGELOG.md",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -82,7 +83,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --check src/agy-quota.js && node --check src/antigravity.js && node --check src/stream-json.js && node --check src/session.js && node --check src/adapter.js && node --check src/progress-tool.js && node --check src/session-domain.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
+    "check": "node --check src/index.js && node --check src/agy-quota.js && node --check src/antigravity.js && node --check src/stream-json.js && node --check src/session.js && node --check src/adapter.js && node --check src/progress-tool.js && node --check src/session-domain.js && node --check src/quota-domain.js && node --check src/enforcement.js && node --check src/client.js && node --check scripts/verify-release.mjs",
     "test": "node --test test/*.test.js",
     "verify:release": "node scripts/verify-release.mjs",
     "link-dev-deps": "node scripts/link-dev-deps.mjs"

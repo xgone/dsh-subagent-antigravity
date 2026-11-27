@@ -17,6 +17,7 @@ import {
   STREAM_MODEL,
   STREAM_PROVIDER,
   safeJson,
+  streamFinishReason,
 } from './stream-json.js'
 import { StreamJsonChildSession } from './session.js'
 
@@ -84,7 +85,10 @@ export function extractDshUserMessage(messages) {
     if (sourceKind !== 'user' && sourceKind !== 'agent-message') continue
     const text = stripDshReturnGuidance(contentText(message.content)).trim()
     if (text === '') continue
-    return { id: message.id ?? `user-${index}-${text.length}`, text }
+    const id = typeof message.id === 'string' && message.id.length > 0
+      ? message.id
+      : `user-${index}-${text.length}`
+    return { id, text }
   }
   return undefined
 }
@@ -105,6 +109,8 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
     this.sessionDomain = sessionDomain
     /** @type {Map<string, StreamJsonChildSession>} */
     this.sessions = new Map()
+    /** @type {Map<string, boolean>} */
+    this.turnTextSeen = new Map()
   }
 
   /** @param {string} provider */
@@ -148,6 +154,7 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
     try {
       throwIfAborted(options.signal)
       if (!state.promptActive && state.lastPromptMessageId !== prompt.id) {
+        this.turnTextSeen.set(sessionId, false)
         await state.startPrompt(prompt, options.signal)
       } else if (!state.promptActive && state.lastPromptMessageId === prompt.id && state.promptEndConsumed) {
         throw new Error('Antigravity CLI has already completed or failed this child task; send a new message to continue')
@@ -163,6 +170,7 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
             yield { type: 'block-start', index: blockIndex, blockType: 'text' }
           }
           textContent += event.text
+          if (event.text.trim() !== '') this.turnTextSeen.set(sessionId, true)
           yield { type: 'text-delta', index: blockIndex, text: event.text }
           continue
         }
@@ -192,6 +200,10 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
         }
         if (event.kind === 'prompt-end') {
           state.markPromptEndConsumed()
+          const hasAssistantText = Boolean(state.turnHasAssistantText)
+            || this.turnTextSeen.get(sessionId) === true
+            || textContent.trim() !== ''
+          this.turnTextSeen.delete(sessionId)
           // A resumed conversation replays no deltas; the terminal response is
           // then the only assistant text of the turn.
           if (!textStarted && typeof event.response === 'string' && event.response.trim() !== '') {
@@ -203,9 +215,12 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
           if (textStarted) {
             yield { type: 'block-end', index: blockIndex, block: { type: 'text', text: textContent } }
           }
+          const finish = event.status === 'SUCCESS'
+            ? streamFinishReason(event.status, { hasAssistantText, response: event.response })
+            : event.finish
           if (event.usage !== undefined) yield { type: 'usage', usage: event.usage }
-          keepSession = true
-          yield { type: 'finish', reason: event.finish }
+          keepSession = finish.kind === 'stop'
+          yield { type: 'finish', reason: finish }
           return
         }
         if (event.kind === 'error') throw event.error
@@ -218,7 +233,10 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
       }
       throw error
     } finally {
-      if (!keepSession) await state.cancelPrompt()
+      if (!keepSession) {
+        this.turnTextSeen.delete(sessionId)
+        await state.cancelPrompt()
+      }
     }
   }
 
@@ -232,7 +250,12 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
   async ensureSession(sessionId, agent, signal) {
     throwIfAborted(signal)
     const existing = this.sessions.get(sessionId)
-    if (existing !== undefined && !existing.disposed) return existing
+    if (existing !== undefined && !existing.disposed && !existing.exited) return existing
+    if (existing !== undefined) {
+      this.sessions.delete(sessionId)
+      this.turnTextSeen.delete(sessionId)
+      await existing.dispose()
+    }
     const state = new StreamJsonChildSession(this.ctx, agent, this.config, this.sessionDomain)
     try {
       await state.open(signal)
@@ -263,6 +286,7 @@ export class AntigravityStreamLlmAdapter extends LlmAdapter {
    */
   async disposeSession(sessionId) {
     const state = this.sessions.get(sessionId)
+    this.turnTextSeen.delete(sessionId)
     if (state === undefined) return
     this.sessions.delete(sessionId)
     await state.dispose()

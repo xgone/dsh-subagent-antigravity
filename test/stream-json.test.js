@@ -42,6 +42,11 @@ test('buildStreamArgv keeps the CLI in stream-json mode and appends native overr
   )
   assert.throws(() => buildStreamArgv('', { permissionMode: 'default' }), /executable path/)
   assert.throws(() => buildStreamArgv('agy', { permissionMode: 'bogus' }), /unknown permissionMode/)
+  assert.throws(() => buildStreamArgv('agy', { permissionMode: 'default' }, '--bad-flag'), /invalid conversationId/)
+  assert.throws(() => buildStreamArgv('agy', { permissionMode: 'default' }, '-x'), /invalid conversationId/)
+  assert.throws(() => buildStreamArgv('agy', { permissionMode: 'default' }, 'conv\n1'), /invalid conversationId/)
+  assert.throws(() => buildStreamArgv('agy', { permissionMode: 'default' }, 'conv\x001'), /invalid conversationId/)
+  assert.throws(() => buildStreamArgv('agy', { permissionMode: 'default' }, 'conv\x7f1'), /invalid conversationId/)
 })
 
 test('encodeUserTurn writes exactly one NDJSON user event', () => {
@@ -121,6 +126,13 @@ test('native usage maps onto disjoint DSH token accounting', () => {
 
 test('terminal CLI statuses map to DSH finish reasons with fixed messages', () => {
   assert.deepEqual(streamFinishReason('SUCCESS'), { kind: 'stop' })
+  assert.deepEqual(streamFinishReason('SUCCESS', { hasAssistantText: true, response: '' }), { kind: 'stop' })
+  assert.deepEqual(streamFinishReason('SUCCESS', { hasAssistantText: false, response: 'ok' }), { kind: 'stop' })
+  for (const blank of ['', '   ', '\n\t']) {
+    const emptySuccess = streamFinishReason('SUCCESS', { hasAssistantText: false, response: blank })
+    assert.equal(emptySuccess.kind, 'error')
+    assert.equal(emptySuccess.failure.code, 'AGY_INVALID')
+  }
   assert.equal(streamFinishReason('CANCELED').kind, 'aborted')
   assert.equal(streamFinishReason('INTERRUPTED').kind, 'aborted')
   for (const status of ['ERROR', 'INVALID', 'WAITING', 'RUNNING', 'unexpected', '']) {

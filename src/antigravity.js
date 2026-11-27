@@ -37,15 +37,25 @@ export const ANTIGRAVITY_PERMISSION_MODES = [
 ]
 
 /**
+ * Read a Config value that may be a live `volatile` accessor.
+ * @template T
+ * @param {unknown} value - a plain value or an accessor exposing `get()`.
+ * @returns {T}
+ */
+export function volatileValue(value) {
+  if (value !== null && typeof value === 'object' && typeof (/** @type {{get?: () => T}} */ (value).get) === 'function') {
+    return /** @type {{get: () => T}} */ (value).get()
+  }
+  return /** @type {T} */ (value)
+}
+
+/**
  * Read a permission posture that may be a live Config `volatile` accessor.
- * @param {unknown} value - a posture string or an accessor exposing `get()`.
+ * @param {unknown} value
  * @returns {string}
  */
 export function permissionModeValue(value) {
-  if (value !== null && typeof value === 'object' && typeof (/** @type {{get?: () => string}} */ (value).get) === 'function') {
-    return /** @type {{get: () => string}} */ (value).get()
-  }
-  return /** @type {string} */ (value)
+  return volatileValue(value)
 }
 
 /** Default posture: sandbox commands and do not auto-approve operations. */

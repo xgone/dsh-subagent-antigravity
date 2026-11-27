@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { Config, apply, name, inject } from '../src/index.js'
 
 function hostContext() {
@@ -133,15 +134,18 @@ test('plugin advertises its identity and injected services', () => {
 test('Config fills documented defaults and omits the optional native overrides', () => {
   const resolved = new Config({})
   assert.equal(resolved.providerName, 'antigravity')
-  assert.equal(resolved.command, 'agy')
+  assert.equal(resolved.command.get(), 'agy')
+  for (const field of ['command', 'model', 'effort', 'agent', 'env', 'disposeEofGraceMs', 'disposeGraceMs']) {
+    assert.equal(typeof resolved[field]?.get, 'function', `${field} must be a volatile accessor`)
+  }
   assert.equal(resolved.permissionMode.get(), 'default')
-  assert.deepEqual(resolved.env, {})
-  assert.equal(resolved.disposeGraceMs, 3000)
-  assert.equal(resolved.disposeEofGraceMs, 6000)
+  assert.deepEqual(resolved.env.get(), {})
+  assert.equal(resolved.disposeGraceMs.get(), 3000)
+  assert.equal(resolved.disposeEofGraceMs.get(), 6000)
   assert.equal(resolved.autoDelegate.get(), false)
-  assert.equal('model' in resolved, false)
-  assert.equal('effort' in resolved, false)
-  assert.equal('agent' in resolved, false)
+  assert.equal(resolved.model.get(), undefined)
+  assert.equal(resolved.effort.get(), undefined)
+  assert.equal(resolved.agent.get(), undefined)
 })
 
 test('Config rejects an unknown permission mode', () => {
@@ -168,7 +172,7 @@ test('apply registers a continuable provider, the CLI LLM route and the progress
 
   assert.equal(adapterRegistrations.length, 1)
   assert.deepEqual(adapterRegistrations[0].providers, ['agy-stream'])
-  assert.equal(domainSpecs[0].name, 'xgone_antigravity_stream_sessions')
+  assert.deepEqual(domainSpecs.map(spec => spec.name), ['xgone_antigravity_quota', 'xgone_antigravity_stream_sessions'])
   assert.equal(toolRegistrations.length, 1)
   assert.equal(toolRegistrations[0].tool.name, 'agy_progress')
   assert.equal(toolRegistrations[0].options.when({ modelSelection: { provider: 'agy-stream' } }), true)
@@ -295,7 +299,22 @@ test('autoDelegate hides built-in subagents registered after an Agent exists', a
   assert.equal(agent.hiddenTools.size, 0)
 })
 
-test('apply rejects a non-positive disposeGraceMs', async () => {
+test('Config enforces positive and MAX_TIMER_DELAY_MS bounds on grace values', () => {
+  for (const field of ['disposeGraceMs', 'disposeEofGraceMs']) {
+    assert.throws(() => new Config({ [field]: 0 }))
+    assert.throws(() => new Config({ [field]: -1 }))
+    assert.throws(() => new Config({ [field]: MAX_TIMER_DELAY_MS + 1 }))
+    const valid = new Config({ [field]: MAX_TIMER_DELAY_MS })
+    assert.equal(valid[field].get(), MAX_TIMER_DELAY_MS)
+  }
+})
+
+test('apply rejects a non-positive or excessive disposeGraceMs', async () => {
   const ctx = { subagents: { registerProvider() {} }, subprocess: {}, logger: { warn() {} } }
-  await assert.rejects(() => apply(ctx, new Config({ disposeGraceMs: 0 })), /positive finite/)
+  const base = new Config({})
+  await assert.rejects(() => apply(ctx, { ...base, disposeGraceMs: { get: () => 0 } }), /positive finite/)
+  await assert.rejects(
+    () => apply(ctx, { ...base, disposeEofGraceMs: { get: () => MAX_TIMER_DELAY_MS + 1 } }),
+    /no greater than/,
+  )
 })

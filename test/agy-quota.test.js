@@ -70,6 +70,57 @@ test('a signed-out CLI is reported as an auth failure, not a generic CLI error',
   await byStdout.dispose()
 })
 
+test('a persisted snapshot answers immediately and revalidates in the background', async () => {
+  const seed = {
+    status: 'ready',
+    fetchedAt: '2026-11-27T00:00:00.000Z',
+    groups: [{ name: 'Gemini Models', buckets: [{ name: 'Weekly', window: 'week', remainingFraction: 0.9, resetTime: '2026-12-01T00:00:00.000Z' }] }],
+  }
+  let persistCount = 0
+  let release
+  const subprocess = fakeSubprocess({
+    onSpawn(_spec, index) {
+      if (index === 0) release = undefined
+    },
+  })
+  const spawns = []
+  const slow = {
+    async resolveExecutable() { return '/resolved/agy' },
+    spawn(spec) {
+      spawns.push(spec)
+      return {
+        done: new Promise((resolve) => { release = () => resolve({ exitCode: 0, signal: null }) }),
+        collected: {
+          stdout: { readFrom: () => ({ text: usageOutput, nextOffset: 0, lossy: false }) },
+          stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+        },
+        terminate() {},
+        async waitForExit() { return true },
+      }
+    },
+  }
+  const reader = createAgyQuotaReader({
+    subprocess: slow,
+    command: 'agy',
+    env: {},
+    cwd: '/workspace',
+    seed,
+    persist: () => { persistCount += 1 },
+  })
+  const restored = await reader.read()
+  assert.equal(restored.status, 'stale')
+  assert.equal(restored.groups[0].buckets[0].remainingFraction, 0.9)
+  assert.equal(spawns.length, 1)
+  assert.equal(persistCount, 0)
+  release()
+  await new Promise(resolve => setImmediate(resolve))
+  const fresh = await reader.read()
+  assert.equal(fresh.status, 'ready')
+  assert.equal(persistCount, 1)
+  assert.equal(subprocess.specs.length, 0)
+  await reader.dispose()
+})
+
 test('the probe process cannot launch a desktop browser opener', async () => {
   if (process.platform === 'win32') return
   let probePath
@@ -188,5 +239,74 @@ test('aborting the final quota reader aborts the managed Agy process', async () 
   await assert.rejects(request, /client disconnected/)
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(specSeen.signal.aborted, true)
+  await reader.dispose()
+})
+
+test('probe timeout serves lastGood as stale and caches failure backoff', async () => {
+  let time = 100
+  let spawnCount = 0
+  const subprocess = {
+    async resolveExecutable() { return '/resolved/agy' },
+    spawn(spec) {
+      spawnCount += 1
+      if (spawnCount === 1) {
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: {
+            stdout: { readFrom: () => ({ text: usageOutput, nextOffset: usageOutput.length, lossy: false }) },
+            stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+          },
+          terminate() {},
+          async waitForExit() { return true },
+        }
+      }
+      return {
+        done: new Promise((_resolve, reject) => {
+          spec.signal.addEventListener('abort', () => reject(spec.signal.reason), { once: true })
+        }),
+        collected: {
+          stdout: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+          stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+        },
+        terminate() {},
+        async waitForExit() { return true },
+      }
+    },
+  }
+  const reader = createAgyQuotaReader({
+    subprocess,
+    command: 'agy',
+    env: {},
+    cwd: '/workspace',
+    refreshMs: 50,
+    failureRefreshMs: 200,
+    timeoutMs: 25,
+    now: () => time,
+  })
+
+  const first = await reader.read()
+  assert.equal(first.status, 'ready')
+  assert.equal(spawnCount, 1)
+
+  time = 200
+  const timedOut = await reader.read()
+  assert.equal(timedOut.status, 'stale')
+  assert.equal(timedOut.reason, 'timeout')
+  assert.deepEqual(timedOut.groups, first.groups)
+  assert.equal(spawnCount, 2)
+
+  // Within failureRefreshMs backoff window, cached stale result is served without re-spawning.
+  time = 300
+  const cached = await reader.read()
+  assert.deepEqual(cached, timedOut)
+  assert.equal(spawnCount, 2)
+
+  // After backoff expires, a new probe runs.
+  time = 450
+  const afterBackoff = await reader.read()
+  assert.equal(afterBackoff.status, 'stale')
+  assert.equal(afterBackoff.reason, 'timeout')
+  assert.equal(spawnCount, 3)
+
   await reader.dispose()
 })

@@ -156,6 +156,60 @@ because the published record is engineering evidence, not a session transcript.
 - Verified with a real CLI and a scrubbed home: `reason: auth` in 210 ms,
   **zero opener invocations**.
 
+## Plugins-form configuration coverage
+
+- The Config page (`plugins.row.config`) only exposes volatile fields: the Host
+  throws `Config field "…" is not volatile` for anything else, and the form's
+  value snapshot omits non-volatile keys. That is why `command`/`model`/`effort`/
+  `agent`/`env` never appeared in the form before.
+- Fix: those fields plus both shutdown graces are `volatile()` in the schema,
+  and the running plugin resolves them through `volatileValue()` at the spawn /
+  probe / teardown use point.
+- Verified in the isolated profile: the form now shows
+  `agy 可执行文件 = /Users/…/.local/bin/agy`, `stdin EOF 后 = 6000`,
+  `终止分级之间 = 3000`; setting 推理强度 to `high` and saving reported `已保存`,
+  wrote `effort: high` into the profile's `cordis.patch.yml`, and the entry kept
+  running (no restart).
+
+## Review fixes: end-to-end smoke (isolated plugin-only profile)
+
+Profile `agy-e2e` (shipped web template + this bundle only, `permissionMode:
+dangerously-skip-permissions`), served on its own port, driven through the Web UI:
+
+- **Fast consecutive tool calls** (the P0 the review found): one delegation ran
+  `printf E2E-A` then `printf E2E-B`. Both steps produced `agy_progress` rows and
+  the final answer arrived — no "already completed" failure.
+- **Resume after an unexpected CLI exit**: the child's `agy` process was killed
+  mid-turn (`SIGTERM`). The parent received a failure notice, then a new message
+  sent into the same child session answered `RESUMED-AFTER-KILL` (turn completed)
+  instead of hitting the permanent lock reported before the fix.
+- **Explicit cancel then continue**: a delegation running `sleep 120` was stopped
+  with the composer's stop control. Result: `turn/end aborted (user)`, the `agy`
+  process exited, the sidecar record for that child read `promptInFlight: false`,
+  and a follow-up message restarted the CLI with
+  `--conversation 9411aa70-…` and answered `RESUMED-AFTER-CANCEL` (`completed`).
+- **Failure rendering**: the aborted/interrupted child turn rendered as
+  「处理失败 / 本轮运行失败 / AGY_ERROR」 in the child transcript, and the
+  progress row showed the Chinese labels (`运行中`, `展开输出`).
+
+## Quota cache and polling
+
+- Measured a real probe: `agy --print /usage` takes ~10.9 s; the route itself is
+  3–5 ms when served from the in-memory cache (60 s TTL), and ~13 s cold.
+- Switching sessions triggers no quota request at all: the dock component mounts
+  once per page load, so its `useEffect` fetch and the interval survive session
+  switches.
+- New: a fresh reading is persisted to the `xgone_antigravity_quota` domain.
+  Measured after a Host restart: the first route read answered in **14 ms** with
+  `status: stale` and the previous `fetchedAt`; a standalone harness against the
+  real CLI showed the restored read at **4 ms**, the background probe exiting `0`
+  ~11 s later, and the next read at **0 ms** returning `ready` with the new
+  `fetchedAt` and `persisted: 1`.
+- Polling is now five minutes and only while the page is visible. Verified by
+  overriding `document.visibilityState`: while hidden the dock issued **zero**
+  `agy-quota` requests; dispatching `visibilitychange` back to `visible` issued
+  two (one per live dock mount) that the Host coalesced into a single probe.
+
 ## What this record does not claim
 
 - It does not benchmark Antigravity model quality or compare models.

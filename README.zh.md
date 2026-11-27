@@ -23,7 +23,7 @@ Antigravity 的登录与设置完全由它自己管理。本插件不保存任�
 
 ## Agy 账号额度
 
-打开 DSH 对话后，输入框下方会显示简短的 Agy 账号额度，位于上下文占用比例统计的右侧。窄屏（小于 480px，即手机）上会收成单一的最紧额度读数，例如 `Agy·99%`；完整的分窗口明细仍在展开面板里。点击或轻触额度条会弹出小面板，显示下次重置时间，并为每个额度桶显示一条进度条（额度窗口名称随界面语言切换），底部显示上次刷新时间。Host 通过本机 CLI 读取 `agy --print /usage --output-format json --print-timeout 30s`，每分钟刷新一次；复用 Agy CLI 的登录状态，不直接请求 Google API。CLI 不可用时显示额度不可用；未登录时提示需在终端登录 agy，后台探测会屏蔽浏览器启动器，未登录结果缓存十分钟，不会反复弹登录页。
+打开 DSH 对话后，输入框下方会显示简短的 Agy 账号额度，位于上下文占用比例统计的右侧。窄屏（小于 480px，即手机）上会收成单一的最紧额度读数，例如 `Agy·99%`；完整的分窗口明细仍在展开面板里。点击或轻触额度条会弹出小面板，显示下次重置时间，并为每个额度桶显示一条进度条（额度窗口名称随界面语言切换），底部显示上次刷新时间。Host 通过本机 CLI 读取 `agy --print /usage --output-format json --print-timeout 30s`（每次约十秒），把最近一次读数存进小型持久缓存；浏览器每 5 分钟轮询一次，且只在页面可见时轮询。Host 重启后会先显示上次读数并标记为过期，同时在后台刷新；复用 Agy CLI 的登录状态，不直接请求 Google API。CLI 不可用时显示额度不可用；未登录时提示需在终端登录 agy，后台探测会屏蔽浏览器启动器，未登录结果缓存十分钟，不会反复弹登录页。
 
 ## 安装
 
@@ -57,30 +57,25 @@ dsh plugin --profile <你的 Profile> add "$(pwd)/dsh-subagent-antigravity"
 
 ## 配置
 
-打开 **Plugins → Installed plugins → Antigravity 子智能体**，点击**配置**，这里可以直接改两项：
+打开 **Plugins → Installed plugins → Antigravity 子智能体**，点击**配置**，所有部署配置项都能在这里改，不需要手写 YAML：
 
 - **自动将新任务交给 Antigravity** —— 开启后，DSH 会隐藏内置本地子智能体工具，并提示模型把每条新任务交给 Antigravity，再转交结果。主模型仍可直接回答或使用其他工具。
 - **Antigravity 权限模式** —— 无人值守会话在不询问你的情况下能做多少事。默认 `default` 使用沙箱且不会自动批准；需要自动允许工作区文件编辑时可选 `accept-edits`。`dangerously-skip-permissions` 会跳过全部审批与沙箱，只在完全信任的任务和目录里使用。
+- **高级设置** —— `agy` 可执行文件、模型标识、推理强度、自定义 agent、环境变量（可增删行）以及两级退出宽限。
 
-其余配置写在 Profile 的 `cordis.patch.yml` 里：
-
-```yaml
-- id: subagent-antigravity
-  name: '@xgone/dsh-subagent-antigravity'
-  config:
-    command: /path/to/agy        # 仅当 agy 不在 PATH 上时需要
-    model: gemini-4-neon-high    # 可选，见下文
-    effort: high                 # 可选
-```
+保存写的是 Profile 里同一个配置行（与 `cordis.patch.yml` 等价），并对**之后启动**的 Antigravity 子会话生效：不会重启插件，也不会打断正在运行的委派。Profile YAML 仍可用于自动化；provider 名称与 bundle 的工具行绑定，表单里只做只读展示。
 
 | 配置项 | 作用 | 默认 |
 |---|---|---|
 | `command` | `agy` 可执行文件位置 | 从 `PATH` 找 `agy` |
 | `model` | 该 Profile 所有任务使用的 Antigravity 模型 | 沿用 Antigravity 自身设置 |
 | `effort` | 推理强度（模型支持等级时） | 沿用 Antigravity 自身设置 |
+| `agent` | Antigravity 自定义 agent 名称 | 沿用 Antigravity 自身设置 |
 | `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | 自动把每条新任务交给 Antigravity | `false` |
 | `env` | 给子进程的额外环境变量 | `{}` |
+| `disposeEofGraceMs` | stdin EOF 后等待 CLI 刷新的宽限（毫秒） | `6000` |
+| `disposeGraceMs` | 进程终止分级之间的宽限（毫秒） | `3000` |
 
 ### 换用其它模型
 
@@ -94,7 +89,7 @@ agy models
 model: claude-sonnet-5-5-high
 ```
 
-模型对整个 Profile 的所有委派生效。DSH 通用的「模型选择」选的是 DSH 自己的模型，不是 Antigravity 的模型标识。如果不同任务要用不同模型，可以按不同 provider 名把本 bundle 挂载两次（各配一行工具和不同的工具名），或修改配置行后重启。
+模型对整个 Profile 的所有委派生效。DSH 通用的「模型选择」选的是 DSH 自己的模型，不是 Antigravity 的模型标识。单个 Profile 只支持一个本插件实例；换模型直接修改配置项，保存即生效、无需重启。
 
 ## 使用
 
@@ -134,6 +129,7 @@ DSH 找不到 CLI。装好它，或把 `command` 指向可执行文件。
 - [实现说明](docs/implementation.md) —— 工作原理与设计取舍。
 - [Antigravity CLI 事实](docs/antigravity-cli-facts.md) —— 本插件依据的 CLI 契约。
 - [验证记录](docs/verification.md) —— 实际验证过的内容。
+- [更新记录](CHANGELOG.md) —— 每个版本的用户可见变化。
 
 ## 许可
 

@@ -22,12 +22,14 @@ import {
   DEFAULT_ANTIGRAVITY_PERMISSION_MODE,
   DEFAULT_DISPOSE_EOF_GRACE_MS,
   DEFAULT_DISPOSE_GRACE_MS,
+  volatileValue,
 } from './antigravity.js'
 import { installAutoDelegateRouting } from './enforcement.js'
 import { createAgyQuotaReader } from './agy-quota.js'
 import { AntigravityStreamLlmAdapter } from './adapter.js'
 import { STREAM_MODEL, STREAM_PROVIDER } from './stream-json.js'
 import { STREAM_SESSION_DOMAIN_SPEC } from './session-domain.js'
+import { QUOTA_DOMAIN_SPEC } from './quota-domain.js'
 import { agyProgressToolActivation, createAgyProgressTool } from './progress-tool.js'
 
 export const name = 'subagent-antigravity'
@@ -58,12 +60,22 @@ function antigravityStartupFailure(cause) {
   })
 }
 
-function installAgyQuotaRoute(ctx, config) {
+/**
+ * @param {import('@deepseek-ai/cordis').Context} ctx
+ * @param {object} config - resolved provider config.
+ * @param {object} [storage] - durable snapshot cache.
+ * @param {object} [storage.seed] - last persisted snapshot from a previous Host run.
+ * @param {(snapshot: object) => void} [storage.persist] - write a fresh reading back.
+ */
+function installAgyQuotaRoute(ctx, config, storage) {
   const quotaReader = createAgyQuotaReader({
     subprocess: ctx.subprocess,
-    command: config.command,
-    env: config.env,
+    // Live accessors: a command-path or env edit applies to the next probe.
+    command: () => volatileValue(config.command),
+    env: () => volatileValue(config.env) ?? {},
     cwd: process.cwd(),
+    seed: storage?.seed,
+    persist: storage?.persist,
   })
   ctx.effect(() => async () => { await quotaReader.dispose() }, 'subagent-antigravity.agy-quota-reader')
   ctx.inject(['connection'], (connectionCtx) => {
@@ -118,16 +130,19 @@ export const AUTO_DELEGATE_INSTRUCTIONS = [
 
 export const Config = z.object({
   providerName: z.string().min(1).default(DEFAULT_PROVIDER_NAME),
-  command: z.string().min(1).default(DEFAULT_COMMAND),
-  model: z.string().min(1),
-  effort: z.string().min(1),
-  agent: z.string().min(1),
+  // Every field the Plugins form edits must be volatile: a volatile form is the
+  // only one the plugin configuration page can write, and a live accessor means
+  // a change applies to the next child spawn without restarting the plugin.
+  command: z.string().min(1).default(DEFAULT_COMMAND).volatile(),
+  model: z.string().min(1).volatile(),
+  effort: z.string().min(1).volatile(),
+  agent: z.string().min(1).volatile(),
   permissionMode: z.union([...ANTIGRAVITY_PERMISSION_MODES])
     .default(DEFAULT_ANTIGRAVITY_PERMISSION_MODE)
     .volatile(),
-  env: z.dict(z.string()).default({}),
-  disposeEofGraceMs: z.number().default(DEFAULT_DISPOSE_EOF_GRACE_MS),
-  disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  env: z.dict(z.string()).default({}).volatile(),
+  disposeEofGraceMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_DISPOSE_EOF_GRACE_MS).volatile(),
+  disposeGraceMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(DEFAULT_DISPOSE_GRACE_MS).volatile(),
   autoDelegate: z.boolean().default(false).volatile(),
 })
 
@@ -177,25 +192,45 @@ export async function apply(ctx, config) {
   /** @type {Required<Omit<Config, 'model'|'effort'|'agent'>> & Pick<Config,'model'|'effort'|'agent'>} */
   const resolved = {
     providerName: config.providerName ?? DEFAULT_PROVIDER_NAME,
-    command: config.command ?? DEFAULT_COMMAND,
-    ...config.model === undefined ? {} : { model: config.model },
-    ...config.effort === undefined ? {} : { effort: config.effort },
-    ...config.agent === undefined ? {} : { agent: config.agent },
+    command: config.command,
+    model: config.model,
+    effort: config.effort,
+    agent: config.agent,
     permissionMode: config.permissionMode,
-    env: config.env ?? {},
-    disposeEofGraceMs: config.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS,
-    disposeGraceMs: config.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
+    env: config.env,
+    disposeEofGraceMs: config.disposeEofGraceMs,
+    disposeGraceMs: config.disposeGraceMs,
     autoDelegate: config.autoDelegate,
   }
-  assertPositiveFinite('subagent-antigravity', 'disposeEofGraceMs', resolved.disposeEofGraceMs)
-  assertPositiveFinite('subagent-antigravity', 'disposeGraceMs', resolved.disposeGraceMs)
-  if (resolved.disposeEofGraceMs > MAX_TIMER_DELAY_MS) {
+  const eofGrace = volatileValue(resolved.disposeEofGraceMs)
+  const disposeGrace = volatileValue(resolved.disposeGraceMs)
+  assertPositiveFinite('subagent-antigravity', 'disposeEofGraceMs', eofGrace)
+  assertPositiveFinite('subagent-antigravity', 'disposeGraceMs', disposeGrace)
+  if (eofGrace > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeEofGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
-  if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
+  if (disposeGrace > MAX_TIMER_DELAY_MS) {
     throw new Error(`subagent-antigravity: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
-  installAgyQuotaRoute(ctx, resolved)
+  const quotaDomain = await ctx.storageDomain.open(QUOTA_DOMAIN_SPEC)
+  ctx.effect(() => () => quotaDomain.close(), 'subagent-antigravity.agy-quota-domain')
+  const quotaTable = quotaDomain.table('snapshot')
+  const quotaRecord = quotaTable.get('last')
+  let quotaSeed
+  if (typeof quotaRecord?.json === 'string') {
+    try {
+      const parsed = JSON.parse(quotaRecord.json)
+      if (parsed?.status === 'ready' && Array.isArray(parsed.groups)) quotaSeed = parsed
+    } catch {
+      // A corrupt cache is ignored; the reader simply probes the CLI.
+    }
+  }
+  installAgyQuotaRoute(ctx, resolved, {
+    seed: quotaSeed,
+    persist: (snapshot) => {
+      void Promise.resolve(quotaTable.put('last', { json: JSON.stringify(snapshot) })).catch(() => {})
+    },
+  })
 
   const streamSessionDomain = await ctx.storageDomain.open(STREAM_SESSION_DOMAIN_SPEC)
   ctx.effect(() => () => streamSessionDomain.close(), 'subagent-antigravity.stream-session-domain')

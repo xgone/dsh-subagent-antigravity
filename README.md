@@ -23,7 +23,7 @@ Antigravity keeps its own login and settings. This plugin never stores credentia
 
 ## Agy account quota
 
-When a DSH conversation is open, the composer footer shows a compact Agy account quota reading at the right of the context-usage reading. On narrow screens (under 480 px, i.e. phones) it collapses to a single tightest value such as `Agy·99%`; the full per-window detail stays in the panel. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` and refreshes once a minute. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable the pill reports that quota is unavailable. When the CLI is signed out the pill says you need to sign in from a terminal, and the background probe never opens a browser window — its process runs with browser openers neutralized, and a signed-out result is cached for ten minutes instead of being retried every minute.
+When a DSH conversation is open, the composer footer shows a compact Agy account quota reading at the right of the context-usage reading. On narrow screens (under 480 px, i.e. phones) it collapses to a single tightest value such as `Agy·99%`; the full per-window detail stays in the panel. Click or tap the pill for a compact panel with the next reset time and one progress bar per quota bucket (window names follow the interface language), plus the last refresh. The Host reads the local CLI output from `agy --print /usage --output-format json --print-timeout 30s` (about ten seconds per probe), keeps the last reading in a small durable cache, and the browser polls every five minutes only while the page is visible. After a Host restart the pill shows the previous reading marked stale and refreshes in the background. This uses Agy's CLI authentication and makes no direct Google API request. If the CLI is unavailable the pill reports that quota is unavailable. When the CLI is signed out the pill says you need to sign in from a terminal, and the background probe never opens a browser window — its process runs with browser openers neutralized, and a signed-out result is cached for ten minutes instead of being retried every minute.
 
 ## Install
 
@@ -57,30 +57,25 @@ Restart DSH if the installer asks you to. The quota pill starts a brief local `a
 
 ## Configure
 
-Open **Plugins → Installed plugins → Antigravity 子智能体** and click **Configure**. Two things are editable there:
+Open **Plugins → Installed plugins → Antigravity 子智能体** and click **Configure**. Every deployment setting is editable there — no YAML editing required:
 
 - **Automatically delegate new tasks to Antigravity** — when on, DSH hides its built-in subagent tools and asks the model to send each new task to Antigravity, then relays the answer. The model may still answer directly or use other tools.
 - **Antigravity permission mode** — how much the unattended session may do without asking you. The default `default` mode keeps command execution sandboxed and does not auto-approve actions. Choose `accept-edits` when workspace edits should be automatic; `dangerously-skip-permissions` runs everything without approvals or sandboxing and should only be used for workspaces you fully trust.
+- **Advanced settings** — the `agy` executable, model slug, reasoning effort, custom agent, environment variables (add/remove rows) and the two shutdown graces.
 
-Everything else is set per Profile in `cordis.patch.yml`:
-
-```yaml
-- id: subagent-antigravity
-  name: '@xgone/dsh-subagent-antigravity'
-  config:
-    command: /path/to/agy        # only needed if agy is not on PATH
-    model: gemini-4-neon-high    # optional, see below
-    effort: high                 # optional
-```
+Saving writes the same Profile row as `cordis.patch.yml` and takes effect for the next Antigravity child: the plugin is not restarted and a running delegation is not cancelled. The Profile YAML stays supported for automation and for the provider name, which is bound to the bundle's tool row and is shown read-only in the form.
 
 | Setting | What it does | Default |
 |---|---|---|
 | `command` | Where the `agy` executable lives | `agy` from `PATH` |
 | `model` | Antigravity model for every task from this Profile | Antigravity's own setting |
 | `effort` | Reasoning effort, if the model supports levels | Antigravity's own setting |
+| `agent` | Antigravity custom agent name | Antigravity's own setting |
 | `permissionMode` | `default` / `accept-edits` / `auto` / `dangerously-skip-permissions` | `default` |
 | `autoDelegate` | Send every new task to Antigravity automatically | `false` |
 | `env` | Extra environment for the child process | `{}` |
+| `disposeEofGraceMs` | Grace for the CLI to flush after stdin EOF | `6000` |
+| `disposeGraceMs` | Grace between process termination steps | `3000` |
 
 ### Use a different model
 
@@ -94,7 +89,7 @@ agy models
 model: claude-sonnet-5-5-high
 ```
 
-The model applies to every delegation from that Profile. DSH's generic "model selection" option is for DSH's own models, not for Antigravity slugs. If you need different tasks on different models, install the bundle twice under different provider names (each with its own row and tool name), or change the row and restart.
+The model applies to every delegation from that Profile. DSH's generic "model selection" option is for DSH's own models, not for Antigravity slugs. A Profile supports only one instance of this plugin; to switch models, edit the `model` setting directly — saving takes effect for the next child session without restarting.
 
 ## Using it
 
@@ -136,6 +131,7 @@ There is no separate Antigravity badge: the Session header's "N 个子智能体"
 - [Implementation notes](docs/implementation.md) — how it works, and why.
 - [Antigravity CLI facts](docs/antigravity-cli-facts.md) — the exact CLI contract this is built against.
 - [Verification record](docs/verification.md) — what has actually been tested.
+- [Changelog](CHANGELOG.md) — user-visible changes per version.
 
 ## License
 

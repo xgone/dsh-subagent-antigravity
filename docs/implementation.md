@@ -44,7 +44,7 @@ No ACP server is involved and no `@agentclientprotocol/sdk` dependency is needed
 - **No interactive permission channel.** `permissionMode` selects static `agy` flags; an operation the CLI will not auto-approve is denied by the product (`result.denied_actions`), exactly as in headless print mode.
 - **Native configuration is authoritative.** Authentication, `settings.json`, model catalog and workspace trust stay native; only `--model`/`--effort`/`--agent`, the mode flags and the `env` overlay are set here.
 - **No separate running indicator.** Because a delegation now owns a real child Session, DSH's own "N 个子智能体" header entry already shows it; the plugin contributes no badge and no parent-side projection.
-- **Settings that must change without a reload are volatile.** `permissionMode` and `autoDelegate` are editable in the Plugins form; the posture is read when a child process is spawned.
+- **Every Plugins-form field is volatile, because that form can only write volatile paths.** `command`, `model`, `effort`, `agent`, `env`, both shutdown graces, `permissionMode` and `autoDelegate` are `volatile()` in the Config schema. The running plugin holds live accessors and resolves them at their use point (process spawn, quota probe, teardown), so a save applies to the next child without a reload and without cancelling a running delegation. `providerName` stays non-volatile: it is bound to the bundle's tool row, so the form shows it read-only.
 
 ## Model Experience
 

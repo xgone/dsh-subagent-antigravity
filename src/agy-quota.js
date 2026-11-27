@@ -47,6 +47,11 @@ function createOpenerNeutralizer() {
   }
 }
 
+/** Resolve an option that may be a plain value or a live getter. */
+function resolveOption(value, fallback) {
+  return typeof value === 'function' ? value() : (value ?? fallback)
+}
+
 function fetchedAt(now) {
   return new Date(now()).toISOString()
 }
@@ -199,6 +204,8 @@ async function runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signa
  * @param {number} [options.refreshMs] - successful result cache lifetime.
  * @param {number} [options.failureRefreshMs] - unavailable result cache lifetime.
  * @param {number} [options.timeoutMs] - hard process query bound.
+ * @param {object} [options.seed] - last snapshot persisted before this Host started.
+ * @param {(snapshot: object) => void} [options.persist] - durable sink for a fresh ready snapshot.
  * @param {() => number} [options.now] - clock seam for tests.
  */
 export function createAgyQuotaReader({
@@ -209,35 +216,68 @@ export function createAgyQuotaReader({
   refreshMs = DEFAULT_REFRESH_MS,
   failureRefreshMs = FAILURE_REFRESH_MS,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  seed,
+  persist,
   now = Date.now,
 }) {
   if (subprocess === null || typeof subprocess?.resolveExecutable !== 'function' || typeof subprocess?.spawn !== 'function') {
     throw new TypeError('subagent-antigravity: Agy quota requires the DSH subprocess service')
   }
-  if (typeof command !== 'string' || command.length === 0) throw new TypeError('subagent-antigravity: Agy quota command is empty')
+  const commandUsable = typeof command === 'function'
+    || (typeof command === 'string' && command.length > 0)
+  if (!commandUsable) throw new TypeError('subagent-antigravity: Agy quota command is empty')
   if (typeof cwd !== 'string' || cwd.length === 0) throw new TypeError('subagent-antigravity: Agy quota working directory is empty')
 
   const openerNeutralizer = createOpenerNeutralizer()
-  const probeEnv = openerNeutralizer === undefined ? env : openerNeutralizer.env(env)
   const lifetime = new AbortController()
   let cached
   let cacheUntil = 0
   let lastGood
   let inFlight
   let disposed = false
+  // A snapshot restored from disk is returned immediately (marked stale) while a
+  // fresh probe runs in the background, so a Host restart never blocks the pill.
+  let pendingRevalidate = seed !== undefined && seed?.status === 'ready'
+  if (pendingRevalidate) {
+    cached = { ...seed, status: 'stale' }
+    lastGood = seed
+  }
+
+  function publish(snapshot) {
+    if (persist === undefined) return
+    try {
+      persist(snapshot)
+    } catch {
+      // A durable cache is an optimization; a failed write never changes a reading.
+    }
+  }
 
   function beginQuery() {
     const controller = new AbortController()
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
     const signal = AbortSignal.any([lifetime.signal, controller.signal, timeoutSignal])
     const flight = { controller, timeoutSignal, readers: 0, settled: false, promise: undefined }
-    flight.promise = runAgyQuotaQuery({ subprocess, command, env, probeEnv, cwd, signal, timeoutSignal, now })
+    // Options may be live Config accessors, so resolve them per probe.
+    const queryEnv = resolveOption(env, {})
+    const queryProbeEnv = openerNeutralizer === undefined ? queryEnv : openerNeutralizer.env(queryEnv)
+    flight.promise = runAgyQuotaQuery({
+      subprocess,
+      command: resolveOption(command),
+      env: queryEnv,
+      probeEnv: queryProbeEnv,
+      cwd,
+      signal,
+      timeoutSignal,
+      now,
+    })
       .then((snapshot) => {
-        if (signal.aborted) return snapshot
+        if (lifetime.signal.aborted || controller.signal.aborted) return snapshot
         if (snapshot.status === 'ready') {
           lastGood = snapshot
           cached = snapshot
           cacheUntil = now() + refreshMs
+          pendingRevalidate = false
+          publish(snapshot)
           return snapshot
         }
         cached = lastGood === undefined
@@ -261,6 +301,12 @@ export function createAgyQuotaReader({
     if (disposed) return unavailable('unavailable', now)
     signal?.throwIfAborted()
     if (cached !== undefined && cacheUntil > now()) return cached
+    if (pendingRevalidate && cached !== undefined) {
+      // Revalidate once in the background; the caller gets the restored reading.
+      pendingRevalidate = false
+      void (inFlight ?? beginQuery()).promise.catch(() => {})
+      return cached
+    }
     const flight = inFlight ?? beginQuery()
     flight.readers += 1
     try {
